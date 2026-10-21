@@ -1,0 +1,13 @@
+{
+  "name": "hxcpp_JIT",
+  "url" : "https://github.com/ThomasDarkson/hxcpp_JIT/",
+  "license": "Apache",
+  "classPath": "src",
+  "tags": ["hxcpp", "cpp", "native", "jit", "script", "scriptable", "runtime", "windows"],
+  "description": "Run native C++ code at runtime",
+  "version": "0.0.1",
+  "releasenote": "Check CHANGELOG.md",
+  "contributors": ["ThomasDarkson"],
+  "dependencies": {
+  }
+}

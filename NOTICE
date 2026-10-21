@@ -1,0 +1,4 @@
+hxcpp_JIT
+Copyright 2026 ThomasDarkson
+
+The precompiled hxcpp_JIT.dll contains parts of the LLVM Project (Apache License v2.0 with LLVM Exceptions). See THIRD_PARTY_NOTICES.md.

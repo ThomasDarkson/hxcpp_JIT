@@ -1,0 +1,12 @@
+bin/
+examples/
+llvm-build/
+llvm-project/
+tests/
+test-bin/
+*.hxml
+build/*
+!build/hxcpp_JIT.dll
+!build/hxcpp_JIT.lib
+!build/hxcpp_JIT_setup.exe
+*.zip
