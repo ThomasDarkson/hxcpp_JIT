@@ -58,9 +58,51 @@ class DLL {
             cwd = cwd.replace("/", "\\");
             if (!FileSystem.exists(cwd))
                 FileSystem.createDirectory(cwd);
-            Sys.command('cmd.exe /c copy /Y "$path" "$cwd"');
+
+            for (i in ["hxcpp_JIT.dll", "vcruntime140.dll", "vcruntime140_1.dll", "vcruntime140_threads.dll", "msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll", "msvcp140_codecvt_ids.dll", "msvcp140_atomic_wait.dll", "vccorlib140.dll", "concrt140.dll"]) {
+                var path = (_source_path + ("build/" + i)).replace("/", "\\");
+                if (FileSystem.exists(path))
+                    Sys.command('cmd.exe /c copy /Y "$path" "$cwd"');
+            }
+
+            var resSrc = (_source_path + "build\\clang-resources\\include").replace("/", "\\");
+            if (!FileSystem.exists(resSrc) || !FileSystem.isDirectory(resSrc))
+                resSrc = findClang(_source_path);
+
+            if (resSrc != null && FileSystem.exists(resSrc) && FileSystem.isDirectory(resSrc)) {
+                var resDst = cwd + "clang-resources\\include";
+                copyDir(resSrc, resDst);
+            }
         }
         return Context.getBuildFields();
+    }
+
+    static function copyDir(src:String, dst:String) {
+        if (!FileSystem.exists(dst))
+            FileSystem.createDirectory(dst);
+        for (entry in FileSystem.readDirectory(src)) {
+            var s = src + "\\" + entry;
+            var d = dst + "\\" + entry;
+            if (FileSystem.isDirectory(s))
+                copyDir(s, d);
+            else
+                File.copy(s, d);
+        }
+    }
+
+    static function findClang(sourcePath:String):String {
+        var clangDir = sourcePath + "llvm-build\\lib\\clang";
+        if (!FileSystem.exists(clangDir) || !FileSystem.isDirectory(clangDir))
+            return null;
+        for (entry in FileSystem.readDirectory(clangDir)) {
+            var versionDir = clangDir + "\\" + entry;
+            if (!FileSystem.isDirectory(versionDir))
+                continue;
+            var include = versionDir + "\\include";
+            if (FileSystem.exists(include) && FileSystem.isDirectory(include))
+                return include;
+        }
+        return null;
     }
 }
 #end

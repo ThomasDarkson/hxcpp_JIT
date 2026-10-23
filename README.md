@@ -1,6 +1,6 @@
 [![](https://thomasdarkson.com/assets/stickers/sticker.png)](https://thomasdarkson.com)
 
-[<img src="https://thomasdarkson.com/hxcpp_JIT/hxcpp_JIT_logo.png" style="width:30%; height:auto;">](https://thomasdarkson.com)
+[<img src="https://thomasdarkson.com/hxcpp_JIT/hxcpp_JIT_logo.png" style="width:60%; height:auto;">](https://thomasdarkson.com)
 
 # hxcpp_JIT
 
@@ -38,32 +38,32 @@ Add this to `project.xml`.
 
 ### Requirements
 - Windows 10 x64 (21H2 or higher) or Windows 11
-- All Visual C++ Redistributable Runtimes (installed automatically by [the setup](#automatic-setup))
+- The Visual C++ v14 runtime DLLs (included with hxcpp_JIT, see [below](#automatic-setup))
 - Visual Studio 2019 (For building Haxe only)
     - Windows 10 SDK (10.0.19041.0) (For building Haxe only)
     - MSVC v142 - VS 2019 C++ x86/64 build tools (Latest) (For building Haxe only)
-- Visual Studio 2022 (installed automatically by [the setup](#automatic-setup))
-    - Windows 11 SDK (10.0.22621.0) (Works on Windows 10)
-    - MSVC v143 - VS 2022 C++ x86/64 build tools (Latest)
-    - C++ ATL for latest v143 build tools (x86 & x64)
+- Visual Studio 2026 (installed automatically by [the setup](#automatic-setup))
+    - Windows 11 SDK (10.0.28000) (Works on Windows 10)
+    - MSVC Build Tools for x64/x86 build tools (Latest)
+    - C++ ATL for x64/x86 (Latest MSVC) (For building the .DLL only, not installed by the setup)
 - [CMake](https://cmake.org/download/) (For building the .DLL only)
 - [Ninja](https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-win.zip) (For building the .DLL only)
 - [LLVM Project 23.1.4](https://github.com/llvm/llvm-project/archive/refs/tags/llvmorg-23.1.4.zip) (For building the .DLL only)
 
 Everything except the items labeled "for building Haxe only" or "for building the .DLL only" is required for both building and running. Any Haxe program that uses hxcpp_JIT will not run without these requirements.
 
-You don't have to install the runtime requirements yourself. The items marked "installed automatically" are handled by the setup that is built into every program that uses hxcpp_JIT.
+You don't have to install the MSVC build tools and Windows SDK yourself, the setup built into every program that uses hxcpp_JIT installs them. The Visual C++ v14 runtime DLLs are shipped with hxcpp_JIT itself (see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)), not installed by the setup.
 
 ### Automatic setup
-hxcpp_JIT includes [hxcpp_JIT_setup](https://github.com/ThomasDarkson/hxcpp_JIT_setup), a small program that checks for the Visual C++ Redistributables, MSVC build tools, Windows SDK and ATL, and installs any that are missing.
+hxcpp_JIT includes [hxcpp_JIT_setup](https://github.com/ThomasDarkson/hxcpp_JIT_setup), a small program that checks for the MSVC build tools and Windows SDK (Visual Studio 2026), and installs them if missing.
 
-The setup exe is **embedded in your compiled program**, so there is no extra file to copy or ship. When your program starts:
+The setup exe is **embedded in your compiled program**, so you don't need to ship the setup. When your program starts:
 
 1. The embedded setup is extracted to `%TEMP%\hxcpp_jit\setup_<hash>.exe` (once per build, later launches reuse it).
 2. It runs silently to check the machine. If everything is installed, your program continues as normal.
-3. If something is missing, a window opens that tells the user what is missing. The user presses **Install**, and your program continues once everything is installed.
+3. If something is missing, the setup asks for administrator permission and opens a window that installs it automatically. The window closes itself once everything is installed, and your program continues.
 
-The extracted copy is left in the temp folder so later launches can reuse it. The setup needs administrator permission and an internet connection to install components, and everything is downloaded from Microsoft.
+The setup needs administrator permission and an internet connection to install components, and everything is downloaded from Microsoft.
 
 See the [hxcpp_JIT_setup README](https://github.com/ThomasDarkson/hxcpp_JIT_setup) for its arguments, exit codes and how to build it.
 
@@ -80,10 +80,10 @@ This part of the README explains how to build the `hxcpp_JIT.dll` and `hxcpp_JIT
 Download [LLVM Project 23.1.4](https://github.com/llvm/llvm-project/archive/refs/tags/llvmorg-23.1.4.zip) and extract the source code into a folder called `llvm-project` in the root directory of the project. Make sure the put the **source files** in `llvm-project/`, not the **llvm-project-llvmorg-23.1.4** folder in the ZIP. 
 
 ### Step 2
-You must configure LLVM before building it. Run **x64 Native Tools Command Prompt for VS 2022** **as administrator**. Run `cd path\to\hxcpp_JIT`, then switch to PowerShell by typing and entering `powershell`.
+You must configure LLVM before building it. Run **x64 Native Tools Command Prompt for VS** (Visual Studio 2026) **as administrator**. Run `cd path\to\hxcpp_JIT`, then switch to PowerShell by typing and entering `powershell`.
 
 After that, run this command.
-`cmake -S llvm-project/llvm -B llvm-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DLLVM_ENABLE_PROJECTS=clang -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_ENABLE_ASSERTIONS=ON -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_DOCS=OFF -DCLANG_INCLUDE_TESTS=OFF -DCLANG_INCLUDE_DOCS=OFF -DLLVM_ENABLE_ZLIB=OFF -DLLVM_ENABLE_ZSTD=OFF -DLLVM_ENABLE_LIBXML2=OFF -DLLVM_PARALLEL_LINK_JOBS=2`
+`cmake -S llvm-project/llvm -B llvm-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DLLVM_ENABLE_PROJECTS=clang -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_ENABLE_ASSERTIONS=OFF -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_DOCS=OFF -DCLANG_INCLUDE_TESTS=OFF -DCLANG_INCLUDE_DOCS=OFF -DLLVM_ENABLE_ZLIB=OFF -DLLVM_ENABLE_ZSTD=OFF -DLLVM_ENABLE_LIBXML2=OFF -DLLVM_PARALLEL_LINK_JOBS=2`
 
 ### Step 3
 To actually build LLVM, run this command.
@@ -104,6 +104,22 @@ Finally, run this to build `hxcpp_JIT.dll` and `hxcpp_JIT.lib`.
 `cmake --build build`
 
 This will create both files in the `build/` folder in the root directory. You can now compile the Haxe project with `haxe build.hxml` or, for OpenFL projects, `lime test windows` as you normally would.
+
+## Shipping the executable
+If you are using hxcpp_JIT and ready to ship your program, make sure to include the following files and directories. These items are **necessary**, hxcpp_JIT won't run without them.
+
+- `hxcpp_JIT.dll`
+- `clang-resources/`
+- `vcruntime140.dll`
+- `vcruntime140_1.dll`
+- `vcruntime140_threads.dll`
+- `msvcp140.dll`
+- `msvcp140_1.dll`
+- `msvcp140_2.dll`
+- `msvcp140_codecvt_ids.dll`
+- `msvcp140_atomic_wait.dll`
+- `vccorlib140.dll`
+- `concrt140.dll`
 
 ## Usage
 To use hxcpp_JIT, you will need either C++ code or a file containing it. Using a file is recommended for anything bigger than a few lines.
@@ -454,4 +470,4 @@ add.dispose();
 ## License
 hxcpp_JIT is licensed under the [Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for attribution.
 
-The precompiled `hxcpp_JIT.dll` contains parts of LLVM and Clang (Apache License v2.0 with LLVM Exceptions) and is compressed with UPX. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for details. The Microsoft components installed by the setup are licensed by Microsoft under their own terms.
+The precompiled `hxcpp_JIT.dll` contains parts of LLVM and Clang (Apache License v2.0 with LLVM Exceptions) and is compressed with UPX. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for details. The Microsoft Visual C++ runtime DLLs shipped with hxcpp_JIT, and the Build Tools/Windows SDK installed by the setup, are licensed by Microsoft under their own terms.

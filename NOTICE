@@ -2,3 +2,5 @@ hxcpp_JIT
 Copyright 2026 ThomasDarkson
 
 The precompiled hxcpp_JIT.dll contains parts of the LLVM Project (Apache License v2.0 with LLVM Exceptions). See THIRD_PARTY_NOTICES.md.
+
+hxcpp_JIT redistributes Microsoft Visual C++ v14 runtime DLLs (unmodified, under Microsoft's Distributable Code terms) and hxcpp_JIT_setup downloads the Visual Studio Build Tools (including the MSVC build tools) and the Windows SDK from Microsoft, which are licensed by Microsoft under its own terms. See THIRD_PARTY_NOTICES.md.
