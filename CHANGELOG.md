@@ -1,3 +1,7 @@
+# 0.0.3
+## Changes
+- Added `Cpp.evalCachedFile`, which compiles a file once and loads it from a cache folder on later launches, and `Cpp.cacheStatus`, which says what the cache did
+
 # 0.0.2
 ## Changes
 - Switched to Visual Studio 2026 from 2022

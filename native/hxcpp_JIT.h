@@ -18,6 +18,8 @@ const char* jit_last_error(JitEngine* e);
 const char* jit_llvm_version(void);
 
 int   jit_eval(JitEngine* e, const char* code);
+int   jit_eval_cached(JitEngine* e, const char* code, const char* declarations, const char* directory);
+const char* jit_cache_status(JitEngine* e);
 int   jit_enable_std_string(JitEngine* e);
 int   jit_get(JitEngine* e, const char* expr, JitValue* out);
 int   jit_set(JitEngine* e, const char* lvalue, JitValue* value);

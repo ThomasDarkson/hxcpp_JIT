@@ -59,7 +59,16 @@ import sys.io.File;
 	Anything else (structs, classes, containers) has to be wrapped in a C++ expression
 	or function that returns one of the types above.
 
+	**Compilation cache**
+
+	For big C++ files, `evalCachedFile` compiles the file once and loads it from a cache folder on later launches:
+
+	```haxe
+	cpp.evalCachedFile("core.cpp", "api.hpp", "cache/core");
+	```
+
 	@see `eval`
+	@see `evalCachedFile`
 	@see `get`
 	@see `set`
 	@see `call`
@@ -88,6 +97,17 @@ class Cpp {
 		@see `enableStdString`
 	**/
 	public var stdStringEnabled(default, null):Bool = false;
+
+	/**
+		What the compilation cache did during the last `evalCachedFile` call, e.g. `Compiled and cached` or
+		`Loaded compiled cache (IR + machine code)`.
+
+		This is an empty string if `evalCachedFile` has not been called yet.
+
+		@see `evalCachedFile`
+		@throws CppError If the session was disposed.
+	**/
+	public var cacheStatus(get, never):String;
 
 	var engine:Star<RawEngine>;
 	var bound:Map<String, CppFunction> = new Map();
@@ -149,6 +169,56 @@ class Cpp {
 		}
 
 		check(Native.eval(engine, ConstCharStar.fromString(code)));
+	}
+
+	/**
+		Compiles a file once and saves the result in a cache folder, so later launches load it instead of compiling it again.
+
+		This is meant for big, self-contained C++ files. `source` holds the function bodies, private globals and initialization.
+		`declarations` is a header with the types, macros and function declarations that `call`, `bind`, `get` and `set` use afterwards:
+
+		```haxe
+		var cpp = new Cpp(["-std=c++17", "-O2"]);
+		trace(cpp.evalCachedFile("core.cpp", "api.hpp", "cache/core")); // Compiled and cached
+		trace(cpp.call("add", [2, 3])); // 5
+		```
+
+		`core.cpp`:
+
+		```cpp
+		#include "api.hpp"
+		int add(int a, int b) { return a + b; }
+		```
+
+		`api.hpp`:
+
+		```cpp
+		#pragma once
+		int add(int a, int b);
+		```
+
+		Only code is cached. Constructors and static initializers run again on every launch, and no pointers or other memory are saved.
+		The cache is thrown away and the file is compiled again when a file it was made from, the compiler flags, the code `eval`'d before it,
+		the CPU or the LLVM version changes. Files are compared by their contents.
+		
+		@param source Path to the C++ file to cache.
+		@param declarations Path to a header with the declarations. It must not contain statements or non-inline definitions.
+		@param cacheDirectory The folder the cache is saved in. It is created if it doesn't exist. Every file needs its own folder.
+		@return The same message is in `cacheStatus`. A cache that can't be saved doesn't stop anything, the file is just compiled without it.
+		@see `cacheStatus`
+		@throws CppError If a file could not be found, `cacheDirectory` is empty, the code failed to compile or run, or the cache could not be run.
+		In the last case `cacheStatus` is `Cache load failed; removed cached code`. The bad cache is deleted, but start a new session before trying again.
+	**/
+	public function evalCachedFile(source:String, declarations:String, cacheDirectory:String):String {
+		ensureAlive();
+		if (!isExistingFile(source)) throw new CppError("File not found: " + source);
+		if (!isExistingFile(declarations)) throw new CppError("Declarations not found: " + declarations);
+		if (cacheDirectory == null || StringTools.trim(cacheDirectory) == "") throw new CppError("Choose a cache directory");
+		var sourceCode = "#include " + haxe.Json.stringify(FileSystem.fullPath(source).split("\\").join("/"));
+		var interfaceCode = "#include " + haxe.Json.stringify(FileSystem.fullPath(declarations).split("\\").join("/"));
+		check(Native.evalCached(engine, ConstCharStar.fromString(sourceCode), ConstCharStar.fromString(interfaceCode),
+			ConstCharStar.fromString(haxe.io.Path.normalize(haxe.io.Path.isAbsolute(cacheDirectory) ? cacheDirectory : haxe.io.Path.join([Sys.getCwd(), cacheDirectory])))));
+		return Native.cacheStatus(engine).toString();
 	}
 
 	/**
@@ -405,5 +475,10 @@ class Cpp {
 			Native.setAddr(v, (x : CppPointer).address);
 		else
 			throw new CppError("Unsupported argument type: " + Type.getClassName(Type.getClass(x)));
+	}
+
+	function get_cacheStatus():String {
+		ensureAlive();
+		return Native.cacheStatus(engine).toString();
 	}
 }

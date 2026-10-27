@@ -21,6 +21,10 @@ extern class Native {
 
 	@:native("jit_eval") static function eval(e:Star<RawEngine>, code:ConstCharStar):Int;
 
+	@:native("jit_eval_cached") static function evalCached(e:Star<RawEngine>, code:ConstCharStar, declarations:ConstCharStar, directory:ConstCharStar):Int;
+
+	@:native("jit_cache_status") static function cacheStatus(e:Star<RawEngine>):ConstCharStar;
+
 	@:native("jit_enable_std_string") static function enableStdString(e:Star<RawEngine>):Int;
 
 	@:native("jit_get") static function get(e:Star<RawEngine>, expr:ConstCharStar, out:Star<RawValue>):Int;

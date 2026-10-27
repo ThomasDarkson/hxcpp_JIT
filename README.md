@@ -83,25 +83,38 @@ Download [LLVM Project 23.1.4](https://github.com/llvm/llvm-project/archive/refs
 You must configure LLVM before building it. Run **x64 Native Tools Command Prompt for VS** (Visual Studio 2026) **as administrator**. Run `cd path\to\hxcpp_JIT`, then switch to PowerShell by typing and entering `powershell`.
 
 After that, run this command.
-`cmake -S llvm-project/llvm -B llvm-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DLLVM_ENABLE_PROJECTS=clang -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_ENABLE_ASSERTIONS=OFF -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_DOCS=OFF -DCLANG_INCLUDE_TESTS=OFF -DCLANG_INCLUDE_DOCS=OFF -DLLVM_ENABLE_ZLIB=OFF -DLLVM_ENABLE_ZSTD=OFF -DLLVM_ENABLE_LIBXML2=OFF -DLLVM_PARALLEL_LINK_JOBS=2`
+
+```powershell
+cmake -S llvm-project/llvm -B llvm-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DLLVM_ENABLE_PROJECTS=clang -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_ENABLE_ASSERTIONS=OFF -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_DOCS=OFF -DCLANG_INCLUDE_TESTS=OFF -DCLANG_INCLUDE_DOCS=OFF -DLLVM_ENABLE_ZLIB=OFF -DLLVM_ENABLE_ZSTD=OFF -DLLVM_ENABLE_LIBXML2=OFF -DLLVM_PARALLEL_LINK_JOBS=2
+```
 
 ### Step 3
 To actually build LLVM, run this command.
 
-`cmake --build llvm-build --target clangInterpreter clangFrontend clang-resource-headers LLVMOrcJIT LLVMX86CodeGen LLVMX86AsmParser LLVMX86Desc LLVMX86Info`
+```powershell
+cmake --build llvm-build --target clangInterpreter clangFrontend clang-resource-headers LLVMOrcJIT LLVMX86CodeGen LLVMX86AsmParser LLVMX86Desc LLVMX86Info LLVMBitReader LLVMBitWriter LLVMTargetParser
+```
 
 This will take a while.
 
 ### Step 4
 Now, to build `hxcpp_JIT.dll` and `hxcpp_JIT.lib`, run this command.
-`$ws = (Get-Location).Path.Replace('\','/')`
+
+```powershell
+$ws = (Get-Location).Path.Replace('\','/')
+```
 
 After that, run this.
-`cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl "-DLLVM_DIR=$ws/llvm-build/lib/cmake/llvm" "-DClang_DIR=$ws/llvm-build/lib/cmake/clang"`
+
+```powershell
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl "-DLLVM_DIR=$ws/llvm-build/lib/cmake/llvm" "-DClang_DIR=$ws/llvm-build/lib/cmake/clang"
+```
 
 Finally, run this to build `hxcpp_JIT.dll` and `hxcpp_JIT.lib`.
 
-`cmake --build build`
+```powershell
+cmake --build build
+```
 
 This will create both files in the `build/` folder in the root directory. You can now compile the Haxe project with `haxe build.hxml` or, for OpenFL projects, `lime test windows` as you normally would.
 
@@ -368,6 +381,137 @@ The first argument of the constructor takes extra flags for Clang. The default s
 ```haxe
 var cpp = new Cpp(["-std=c++17", "-O2", "-I/my/include"]);
 ```
+
+## Compilation cache
+Compiling a big C++ file with Clang can take a long time, and `eval` does it again every time your program starts. `evalCachedFile` compiles a file once, saves the result to a folder, and loads it from there on the next launches.
+
+```haxe
+import hxcpp_jit.Cpp;
+
+class Main {
+	static function main() {
+		var cpp = new Cpp(["-std=c++17", "-O2"]);
+		trace(cpp.evalCachedFile("core.cpp", "api.hpp", "cache/core")); // Compiled and cached
+		trace(cpp.call("add", [2, 3])); // 5
+		cpp.dispose();
+	}
+}
+```
+
+The first launch compiles `core.cpp` and fills `cache/core`. Every launch after that loads it instead of compiling it again, and `cacheStatus` tells you which one happened.
+
+### Source and declarations
+`evalCachedFile` takes two files and a folder.
+
+| Argument | Description |
+|---|---|
+| `source` | The C++ file to cache. It holds the function bodies, private globals and initialization. |
+| `declarations` | A header with the types and declarations that you want to use from Haxe. |
+| `cacheDirectory` | The folder the cache is saved in. It is created if it doesn't exist. |
+
+`core.cpp`:
+```cpp
+#include "api.hpp"
+int add(int a, int b) { return a + b; }
+```
+
+`api.hpp`:
+```cpp
+#pragma once
+int add(int a, int b);
+```
+
+The declarations file is what later `call`, `bind`, `get` and `set` see, so put everything they need in it, types, macros and function declarations. Do not put statements or non-inline definitions in it, they belong in the source.
+
+Use a cache for a big, self-contained file, and call its functions afterwards. Each file needs its own `cacheDirectory`, never share one between two files.
+
+### cacheStatus
+`evalCachedFile` returns a readable message about what the cache did, and `cacheStatus` holds the same message for the last call.
+
+```haxe
+trace(cpp.cacheStatus); // Loaded compiled cache (IR + machine code)
+```
+
+| Message | Meaning |
+|---|---|
+| `Compiled and cached` | Nothing usable was saved, so the file was compiled and saved. |
+| `Loaded compiled cache (IR + machine code)` | The saved code and its machine code were both reused. |
+| `Loaded cached IR; rebuilt machine code` | The machine code was missing or damaged, so only it was compiled again. |
+| `Loaded cached IR; machine code deferred until first use` | The machine code is compiled when a function needs it. |
+| `Compiled; cache write skipped: ...` | The code compiled but couldn't be saved. |
+| `Cache disabled: ...` | The folder can't be written to, so the file was compiled without a cache. |
+| `Cache load failed; removed cached code` | The saved code couldn't be run and was deleted. See [Errors](#cache-errors). |
+
+A cache that can't be saved never stops your program, the file is just compiled like `eval` would.
+
+### What is saved
+A cache folder contains three files, and all of them can be replaced:
+
+| File | Description |
+|---|---|
+| `unit.bc` | The compiled code as LLVM bitcode. |
+| `unit.obj` | The machine code, with a check to make sure it belongs to this cache. |
+| `unit.json` | The inputs the cache was made from. |
+
+Only code is saved. Pointers, variables and other memory are never saved, so **constructors and static initializers run again** every time, and each launch starts with fresh state.
+
+### When the cache is thrown away
+The cache is checked every time, using a SHA-256 hash of every file the compiler read, not the date or size of the file. Editing a header without changing its size or date is still noticed. The cache is thrown away and the file is compiled again when any of these change:
+
+- The source, the declarations, or any header they include. Deleted files count too.
+- The compiler flags, including the ones hxcpp_JIT adds by itself.
+- Anything you `eval`'d on the same session before `evalCachedFile`.
+- The CPU features, the LLVM version, or `hxcpp_JIT.dll` itself.
+- The working directory and the build tool environment variables.
+- The location of the Windows SDK or C++ standard library headers, even if the old one is still installed.
+
+A cache that is damaged, cut off or replaced while another program was writing is detected and rebuilt, and files are written in a way that can't leave a half-written cache. A file that changes while it is being compiled isn't saved at all.
+
+To clear a cache yourself, delete its folder.
+
+### Cache errors
+If the cache can't be run, `evalCachedFile` throws a `CppError` and `cacheStatus` becomes `Cache load failed; removed cached code`. The bad cache is already deleted, but this session can't be used anymore, so create a new `Cpp` and call `evalCachedFile` again. Errors in your C++ code are thrown as usual.
+
+```haxe
+var cpp = new Cpp();
+try {
+	cpp.evalCachedFile("core.cpp", "api.hpp", "cache/core");
+} catch (e:hxcpp_jit.CppError) {
+	cpp.dispose();
+	cpp = new Cpp(); // Fresh session
+	cpp.evalCachedFile("core.cpp", "api.hpp", "cache/core"); // Compiles again and fills the cache
+}
+```
+
+### SafeCpp
+`SafeCpp` doesn't wrap `evalCachedFile` yet. Call it on the session in `cpp`, and use `try`/`catch` with it.
+
+```haxe
+var safe = new SafeCpp();
+safe.cpp.evalCachedFile("core.cpp", "api.hpp", "cache/core");
+```
+
+### Rebuilding for the cache
+Rebuild `hxcpp_JIT.dll` and `hxcpp_JIT.lib`, then recompile your Haxe project. Your existing LLVM build can be reused, LLVM itself doesn't need to be built again. Run the following to build the three LLVM libraries the cache needs, in the folder you built LLVM in:
+
+`cmake --build llvm-build --target LLVMBitReader LLVMBitWriter LLVMTargetParser`
+
+Then build hxcpp_JIT again like in [Step 4](#step-4):
+
+`cmake -S . -B build`
+
+`cmake --build build`
+
+For a new `build/` folder, use the full `cmake -S . -B build -G Ninja ...` command from Step 4 instead.
+
+### Testing the cache
+The cache has its own tests. After rebuilding, run these in **x64 Native Tools Command Prompt for VS**:
+
+`cl /std:c++17 /EHsc /MD /I native tests\cache_runtime.cpp build\hxcpp_JIT.lib /Fe:build\cache_runtime_test.exe`
+
+`build\cache_runtime_test.exe`
+
+It has to run next to `hxcpp_JIT.dll` in `build/`. It checks the first and later launches, fresh constructors, `bind`, `std::string`, exceptions, header edits that keep the file date, changed flags and damaged cache files. `tests/cache_logic_llvm19.cpp` runs the shared cache code on Linux with LLVM 19 libraries. See [COMPILATION_CACHE.md](COMPILATION_CACHE.md) for more.
 
 ## LLVM version
 `Cpp.LLVM_VERSION` is the LLVM version that the library was built with.

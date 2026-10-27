@@ -5,7 +5,7 @@
   "classPath": "src",
   "tags": ["hxcpp", "cpp", "native", "jit", "script", "scriptable", "runtime", "windows"],
   "description": "Run native C++ code at runtime",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "releasenote": "Check CHANGELOG.md",
   "contributors": ["ThomasDarkson"],
   "dependencies": {

@@ -1,3 +1,7 @@
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
 #include "hxcpp_JIT.h"
 
 #include "clang/Basic/Diagnostic.h"
@@ -15,6 +19,8 @@
 #include "llvm/Support/Error.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/SHA256.h"
+#include "llvm/ADT/StringExtras.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -24,6 +30,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <stdexcept>
 #include <unordered_map>
 #include <vector>
 
@@ -86,13 +93,23 @@ struct JitFn {
   std::shared_ptr<SessionLife> life;
 };
 
+static std::string cacheHash(llvm::StringRef data) {
+  return llvm::toHex(llvm::SHA256::hash(llvm::arrayRefFromStringRef(data)), true);
+}
+
+#include "object_cache.hpp"
+
 struct JitEngine {
   std::shared_ptr<SessionLife> life = std::make_shared<SessionLife>();
+  CompilationObjectCache objectCache;
   std::unique_ptr<clang::Interpreter> interp;
   std::string                         diagText;
   std::unique_ptr<llvm::raw_string_ostream> diagStream;
   std::string                         lastError;
   unsigned                            thunkCounter = 0;
+  std::vector<std::string> compilerArgs;
+  std::string historyKey;
+  std::string cacheStatus;
   std::unordered_map<std::string, ThunkFn> getCache;
   std::unordered_map<std::string, ThunkFn> setCache;
 
@@ -386,6 +403,7 @@ static int runCode(JitEngine* e, const std::string& code) {
     return 1;
   }
   e->lastError.clear();
+  e->historyKey = cacheHash(e->historyKey + code);
   return 0;
 }
 
@@ -419,6 +437,20 @@ static ThunkFn cachedThunk(JitEngine* e, std::unordered_map<std::string, ThunkFn
   }
   return t;
 }
+
+static std::filesystem::path cacheLibraryPath() {
+  HMODULE handle = nullptr;
+  if(!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+      GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+      reinterpret_cast<LPCSTR>(&moduleDir), &handle))
+    throw std::runtime_error("Cannot identify hxcpp_JIT DLL");
+  wchar_t filename[32768];
+  DWORD size = GetModuleFileNameW(handle, filename, 32768);
+  if (!size || size >= 32768) throw std::runtime_error("Cannot identify hxcpp_JIT DLL");
+  return std::filesystem::path(std::wstring(filename,size));
+}
+
+#include "compilation_cache.hpp"
 
 extern "C" {
 
@@ -463,6 +495,7 @@ JitEngine* jit_create(const char* const* extra_args, int n_args) {
 
   auto e = std::make_unique<JitEngine>();
   e->life->engine = e.get();
+  e->compilerArgs = owned;
   e->diagStream = std::make_unique<llvm::raw_string_ostream>(e->diagText);
 
   clang::IncrementalCompilerBuilder B;
@@ -477,7 +510,6 @@ JitEngine* jit_create(const char* const* extra_args, int n_args) {
       true);
 
     auto IEB = std::make_unique<clang::IncrementalExecutorBuilder>();
-#ifdef _MSC_VER
   {
     auto JTMB = llvm::orc::JITTargetMachineBuilder::detectHost();
     if (!JTMB) {
@@ -486,10 +518,16 @@ JitEngine* jit_create(const char* const* extra_args, int n_args) {
     }
     auto JB = std::make_unique<llvm::orc::LLJITBuilder>();
     JB->setJITTargetMachineBuilder(std::move(*JTMB));
+#ifdef _MSC_VER
     hxcpp_JIT_configure_builder(*JB);
+#endif
+    JB->setCompileFunctionCreator([cache=&e->objectCache](llvm::orc::JITTargetMachineBuilder target)
+        -> llvm::Expected<std::unique_ptr<llvm::orc::IRCompileLayer::IRCompiler>> {
+      return std::unique_ptr<llvm::orc::IRCompileLayer::IRCompiler>(
+          std::make_unique<llvm::orc::ConcurrentIRCompiler>(std::move(target),cache));
+    });
     IEB->JITBuilder = std::move(JB);
   }
-#endif
   auto Interp = clang::Interpreter::create(std::move(*CI), std::move(IEB));
   if (!Interp) {
     g_createError = errToString(Interp.takeError());
@@ -538,6 +576,15 @@ const char* jit_last_error(JitEngine* e) {
 }
 
 int jit_eval(JitEngine* e, const char* code) { return runCode(e, code); }
+
+int jit_eval_cached(JitEngine* e, const char* code, const char* declarations, const char* directory) {
+  if (!e || !code || !declarations || !directory) return 1;
+  try { return evalCached(e, code, declarations, directory); }
+  catch (const std::exception& error) { e->lastError = error.what(); return 1; }
+  catch (...) { e->lastError = "Unknown compilation cache failure"; return 1; }
+}
+const char* jit_cache_status(JitEngine* e) { return e ? e->cacheStatus.c_str() : ""; }
+
 
 int jit_enable_std_string(JitEngine* e) { return runCode(e, kStdString); }
 

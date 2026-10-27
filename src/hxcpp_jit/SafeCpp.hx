@@ -53,6 +53,12 @@ class SafeCpp {
         });
     }
 
+    public function evalCachedFile(source:String, declarations:String, cacheDirectory:String):String {
+        return attempt("evalCachedFile", [source, declarations, cacheDirectory], () -> {
+            return requireCpp().evalCachedFile(source, declarations, cacheDirectory);
+        });
+    }
+
     public function enableStdString():Void {
         attempt("enableStdString", [], () -> {
             requireCpp().enableStdString();
