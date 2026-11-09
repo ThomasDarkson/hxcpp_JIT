@@ -79,7 +79,9 @@ import sys.io.File;
 @:keepSub
 @:build(macros.DLL.moveDLL())
 class Cpp {
+	#if hxcpp_jit_msvc
 	static final _boot = @:privateAccess Setup.init();
+	#end
 
 	/**
 		The LLVM version the library `hxcpp_JIT` is actually built against.
@@ -123,6 +125,11 @@ class Cpp {
 		@throws CppError If the session could not be created, or `std::string` could not be enabled.
 	**/
 	public function new(?args:Array<String>, stdString:Bool = true) {
+		#if !hxcpp_jit_msvc
+        var backend = Native.backend().toString();
+        if (backend != "mingw" && backend != "linux")
+            throw new CppError("The default backend requires the MinGW DLL on Windows or libhxcpp_JIT.so on Linux. Please rebuild");
+		#end
 		engine = Native.create(ConstCharStar.fromString(args == null ? "" : args.join("\n")));
 		if (engine == null)
 			throw new CppError("Failed to create JIT: " + Native.lastError(null).toString());

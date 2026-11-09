@@ -57,7 +57,7 @@ static std::string identity(JitEngine* e, const std::string& code) {
   llvm::json::Object features;
   for (const auto& feature : sorted) features[feature.first] = feature.second;
   llvm::json::Object env;
-  for (const char* name : {"INCLUDE", "LIB", "PATH", "VCToolsInstallDir", "WindowsSdkDir", "WindowsSDKVersion", "HXCPP_JIT_RESOURCE_DIR"})
+  for (const char* name : {"INCLUDE", "LIB", "PATH", "VCToolsInstallDir", "WindowsSdkDir", "WindowsSDKVersion", "HXCPP_JIT_RESOURCE_DIR", "HXCPP_JIT_MINGW_ROOT"})
     env[name] = std::getenv(name) ? std::getenv(name) : "";
   llvm::json::Object data{{"schema", 1}, {"llvm", LLVM_VERSION_STRING},
     {"dll", cacheHash(read(cacheLibraryPath()))},
@@ -67,7 +67,7 @@ static std::string identity(JitEngine* e, const std::string& code) {
   std::string text; llvm::raw_string_ostream stream(text); stream << llvm::json::Value(std::move(data));
   return cacheHash(stream.str());
 }
-static llvm::json::Array dependencies(JitEngine* e) {
+static llvm::json::Array dependencies(JitEngine* e, bool requireFiles = true) {
   llvm::json::Array result;
   auto& manager = e->interp->getCompilerInstance()->getSourceManager();
   for (auto it = manager.fileinfo_begin(); it != manager.fileinfo_end(); ++it) {
@@ -81,38 +81,45 @@ static llvm::json::Array dependencies(JitEngine* e) {
     if (cacheHash(read(name)) != digest) throw std::runtime_error("Input changed during compilation: " + name);
     result.push_back(llvm::json::Object{{"path", name}, {"sha256", digest}});
   }
-  if (result.empty()) throw std::runtime_error("No file dependencies found");
+  if (requireFiles && result.empty()) throw std::runtime_error("No file dependencies found");
   return result;
 }
-static bool load(JitEngine* e, const fs::path& directory, const std::string& key, std::string& bitcode) {
+static bool load(JitEngine* e, const fs::path& directory, const std::string& key,
+                 std::string& bitcode, std::string& missReason) {
+  auto miss = [&](std::string reason) { missReason = std::move(reason); return false; };
   try {
     auto parsed = llvm::json::parse(read(directory / "unit.json"));
-    if (!parsed) { llvm::consumeError(parsed.takeError()); return false; }
+    if (!parsed) { llvm::consumeError(parsed.takeError()); return miss("Invalid cache manifest JSON"); }
     auto* record = parsed->getAsObject();
-    if (!record || record->getString("key") != key) return false;
+    if (!record) return miss("Cache manifest is not an object");
+    if (record->getString("key") != key) return miss("Cache identity changed; expected " + key);
     auto* files = record->getArray("dependencies");
-    if (!files || files->empty()) return false;
+    if (!files || files->empty()) return miss("Cached file dependency list is missing or empty");
     std::map<std::string,std::string> recorded;
     for (const auto& value : *files) {
       auto* file = value.getAsObject();
-      if (!file) return false;
+      if (!file) return miss("Invalid cached dependency record");
       auto path = file->getString("path"); auto digest = file->getString("sha256");
-      if (!path || !digest || cacheHash(read(path->str())) != *digest) return false;
+      if (!path || !digest) return miss("Cached dependency has no path or digest");
+      if (cacheHash(read(path->str())) != *digest) return miss("Cached dependency changed: " + path->str());
       recorded[path->str()]=digest->str();
     }
-    for(const auto& value : dependencies(e)) {
+    for(const auto& value : dependencies(e, false)) {
       auto* file=value.getAsObject();
       auto path=file->getString("path");auto digest=file->getString("sha256");
       auto found=recorded.find(path->str());
-      if(found==recorded.end() || found->second!=*digest)return false;
+      if(found==recorded.end() || found->second!=*digest)
+        return miss("Current session dependency differs: " + path->str());
     }
     bitcode = read(directory / "unit.bc");
-    if (record->getString("bitcode") != cacheHash(bitcode)) return false;
+    if (record->getString("bitcode") != cacheHash(bitcode)) return miss("Cached bitcode digest differs");
     llvm::LLVMContext temporary;
     auto module = llvm::parseBitcodeFile(llvm::MemoryBufferRef(bitcode, "cache"), temporary);
-    if (!module) { llvm::consumeError(module.takeError()); return false; }
+    if (!module) { llvm::consumeError(module.takeError()); return miss("Cached bitcode could not be parsed"); }
+    missReason.clear();
     return true;
-  } catch (...) { return false; }
+  } catch (const std::exception& error) { return miss(error.what()); }
+  catch (...) { return miss("Unknown cache validation error"); }
 }
 }
 
@@ -128,7 +135,13 @@ static int evalCached(JitEngine* e, const std::string& code,
     writable = false; e->cacheStatus = std::string("Cache disabled: ") + error.what();
   }
   std::string bitcode;
-  bool hit = writable && hxcache::load(e, directory, key, bitcode);
+  std::string missReason;
+  bool hit = writable && hxcache::load(e, directory, key, bitcode, missReason);
+  if (std::getenv("HXCPP_JIT_TRACE_CACHE") || std::getenv("HXCPP_JIT_TRACE_EH")) {
+    std::fprintf(stderr, "hxcpp_JIT cache %s: %s%s%s\n", hit ? "hit" : "miss", key.c_str(),
+        hit ? "" : "; ", hit ? "" : (writable ? missReason.c_str() : e->cacheStatus.c_str()));
+    std::fflush(stderr);
+  }
   if (!hit && writable) hxcache::invalidate(directory);
   e->diagText.clear();
   auto parsed = e->interp->Parse(hit ? ";" : code);

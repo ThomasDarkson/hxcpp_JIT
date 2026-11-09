@@ -16,6 +16,7 @@ JitEngine*  jit_create_args(const char* args_newline_separated);
 void        jit_destroy(JitEngine* e);
 const char* jit_last_error(JitEngine* e);
 const char* jit_llvm_version(void);
+const char* jit_backend(void);
 
 int   jit_eval(JitEngine* e, const char* code);
 int   jit_eval_cached(JitEngine* e, const char* code, const char* declarations, const char* directory);

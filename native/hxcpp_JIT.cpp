@@ -3,8 +3,14 @@
 #endif
 
 #include "hxcpp_JIT.h"
+#ifdef HXCPP_JIT_MINGW
+#include "mingw_runtime.hpp"
+#endif
 
 #include "clang/Basic/Diagnostic.h"
+#ifdef HXCPP_JIT_MINGW
+#include "clang/Basic/TargetInfo.h"
+#endif
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/TextDiagnosticPrinter.h"
 #include "clang/Interpreter/Interpreter.h"
@@ -34,13 +40,22 @@
 #include <unordered_map>
 #include <vector>
 
-#ifndef _WIN32
-#error "hxcpp_JIT only supports Windows."
-#endif
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#else
+#include <dlfcn.h>
+extern "C" {
+void* __emutls_get_address(void*);
+__int128 __divti3(__int128, __int128);
+__int128 __modti3(__int128, __int128);
+unsigned __int128 __udivti3(unsigned __int128, unsigned __int128);
+unsigned __int128 __umodti3(unsigned __int128, unsigned __int128);
+}
+#endif
 
 static std::string moduleDir() {
+#ifdef _WIN32
   std::string p;
   HMODULE h = nullptr;
   if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
@@ -52,6 +67,11 @@ static std::string moduleDir() {
   p.assign(buf, n);
   auto pos = p.find_last_of("/\\");
   return pos == std::string::npos ? "" : p.substr(0, pos);
+#else
+  Dl_info info{};
+  if (!dladdr(reinterpret_cast<void*>(&moduleDir), &info) || !info.dli_fname) return "";
+  return std::filesystem::absolute(info.dli_fname).parent_path().string();
+#endif
 }
 
 static std::string findResourceDir() {
@@ -393,7 +413,25 @@ static void repairAfterFailure(JitEngine* e) {
                  g_repScanned, g_repInvalid, g_repFixed);
 }
 
-static int runCode(JitEngine* e, const std::string& code) {
+static const char* unknownJitCodeError() {
+#ifdef HXCPP_JIT_MINGW
+  return "Unknown C++ exception in MinGW JIT code";
+#else
+  return "Unknown C++ exception in Linux JIT code";
+#endif
+}
+static const char* unknownJitCallError() {
+#ifdef HXCPP_JIT_MINGW
+  return "Unknown C++ exception in MinGW JIT call";
+#else
+  return "Unknown C++ exception in Linux JIT call";
+#endif
+}
+static int runCode(JitEngine* e, const std::string& code)
+#if defined(HXCPP_JIT_MINGW) || defined(__linux__)
+try
+#endif
+{
   e->diagText.clear();
   if (auto Err = e->interp->ParseAndExecute(code)) {
     std::string msg = errToString(std::move(Err));
@@ -405,6 +443,21 @@ static int runCode(JitEngine* e, const std::string& code) {
   e->lastError.clear();
   e->historyKey = cacheHash(e->historyKey + code);
   return 0;
+}
+#if defined(HXCPP_JIT_MINGW) || defined(__linux__)
+catch (const std::exception& error) { e->lastError = error.what(); return 1; }
+catch (...) { e->lastError = unknownJitCodeError(); return 1; }
+#endif
+
+static bool invokeThunk(JitEngine* e, ThunkFn thunk, JitValue* args, JitValue* ret, int count) {
+#if defined(HXCPP_JIT_MINGW) || defined(__linux__)
+  try { thunk(args, ret, count); }
+  catch (const std::exception& error) { e->lastError = error.what(); return false; }
+  catch (...) { e->lastError = unknownJitCallError(); return false; }
+#else
+  thunk(args, ret, count);
+#endif
+  return true;
 }
 
 static void* lookup(JitEngine* e, const std::string& name) {
@@ -418,10 +471,35 @@ static void* lookup(JitEngine* e, const std::string& name) {
 
 static ThunkFn makeThunk(JitEngine* e, const std::string& body) {
   std::string name = "__jit_thunk_" + std::to_string(e->thunkCounter++);
+#if defined(HXCPP_JIT_MINGW) || defined(__linux__)
+  std::string code = "#include <exception>\nextern \"C\" void " + name +
+      "(JitValue* __a, JitValue* __r, int __n) { try { " + body +
+      " } catch (const std::exception& error) { __jit::fail(*__r, error.what()); }"
+      " catch (...) { __jit::fail(*__r, \"" + std::string(unknownJitCallError()) + "\"); } }\n";
+#else
   std::string code = "extern \"C\" void " + name +
                      "(JitValue* __a, JitValue* __r, int __n) { " + body + " }\n";
+#endif
   if (runCode(e, code)) return nullptr;
-  return reinterpret_cast<ThunkFn>(lookup(e, name));
+  auto* address = lookup(e, name);
+#ifdef HXCPP_JIT_MINGW
+  if (address) {
+    DWORD64 imageBase = 0;
+    auto* entry = RtlLookupFunctionEntry(reinterpret_cast<DWORD64>(address), &imageBase, nullptr);
+    if (entry && std::getenv("HXCPP_JIT_TRACE_EH")) {
+      std::fprintf(stderr, "MinGW wrapper %s: pc=%p unwind=[%p,%p)\n", name.c_str(), address,
+          reinterpret_cast<void*>(imageBase + entry->BeginAddress),
+          reinterpret_cast<void*>(imageBase + entry->EndAddress));
+      std::fflush(stderr);
+    }
+    if (!entry) {
+      e->lastError = "No Windows x64 unwind entry registered for JIT wrapper " + name +
+          " at 0x" + llvm::utohexstr(reinterpret_cast<uintptr_t>(address));
+      return nullptr;
+    }
+  }
+#endif
+  return reinterpret_cast<ThunkFn>(address);
 }
 
 static constexpr size_t kThunkCacheMax = 4096;
@@ -439,6 +517,7 @@ static ThunkFn cachedThunk(JitEngine* e, std::unordered_map<std::string, ThunkFn
 }
 
 static std::filesystem::path cacheLibraryPath() {
+#ifdef _WIN32
   HMODULE handle = nullptr;
   if(!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
       GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
@@ -448,6 +527,12 @@ static std::filesystem::path cacheLibraryPath() {
   DWORD size = GetModuleFileNameW(handle, filename, 32768);
   if (!size || size >= 32768) throw std::runtime_error("Cannot identify hxcpp_JIT DLL");
   return std::filesystem::path(std::wstring(filename,size));
+#else
+  Dl_info info{};
+  if (!dladdr(reinterpret_cast<void*>(&moduleDir), &info) || !info.dli_fname)
+    throw std::runtime_error("Cannot identify hxcpp_JIT shared library");
+  return std::filesystem::absolute(info.dli_fname);
+#endif
 }
 
 #include "compilation_cache.hpp"
@@ -459,13 +544,94 @@ JitEngine* jit_create(const char* const* extra_args, int n_args) {
     llvm::InitializeNativeTarget();
     llvm::InitializeNativeTargetAsmPrinter();
     llvm::InitializeNativeTargetAsmParser();
+#if defined(_WIN32) && !defined(HXCPP_JIT_MINGW)
     hxcpp_JIT_register_runtime_symbols();
+#endif
   });
 
   std::vector<std::string> owned;
+#ifdef __linux__
+  auto root = std::filesystem::path(moduleDir()) / "linux";
+  if (const char* value = std::getenv("HXCPP_JIT_LINUX_ROOT")) root = value;
+  std::error_code ec;
+  if (!std::filesystem::exists(root / "include/c++/string", ec) ||
+      !std::filesystem::exists(root / "include/stdio.h", ec)) {
+    g_createError = "Bundled Linux headers not found at " + root.string();
+    return nullptr;
+  }
+  owned.emplace_back("--target=x86_64-unknown-linux-gnu");
+  owned.emplace_back("-nostdinc"); owned.emplace_back("-nostdinc++");
+  for (const auto& directory : {root / "include/c++", root / "include/c++/target",
+       root / "include/c++/backward", std::filesystem::path(findResourceDir()) / "include", root / "include"}) {
+    owned.emplace_back("-isystem"); owned.emplace_back(directory.string());
+  }
+  owned.emplace_back("-fexceptions"); owned.emplace_back("-fPIC");
+  owned.emplace_back("-femulated-tls");
+#endif
+#ifdef HXCPP_JIT_MINGW
+  try {
+    auto root = hxcpp_JIT_mingw_root();
+    struct HeaderProbe {
+      std::filesystem::path path;
+      DWORD attributes;
+      DWORD error;
+      explicit HeaderProbe(std::filesystem::path file) : path(std::move(file)) {
+        attributes = GetFileAttributesW(path.c_str());
+        error = attributes == INVALID_FILE_ATTRIBUTES ? GetLastError() : ERROR_SUCCESS;
+      }
+      bool found() const {
+        return attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY);
+      }
+      std::string describe() const {
+        return path.string() + (found() ? " [found]" :
+            " [missing or inaccessible; Windows error " + std::to_string(error) +
+            ", attributes " + std::to_string(attributes) + "]");
+      }
+    };
+    HeaderProbe stringHeader(root / "include" / "c++" / "v1" / "string");
+    HeaderProbe targetHeader(root / "x86_64-w64-mingw32" / "include" / "windows.h");
+    HeaderProbe sharedHeader(root / "include" / "windows.h");
+    if (!stringHeader.found() || (!targetHeader.found() && !sharedHeader.found())) {
+      g_createError = std::string("MinGW bundle check v3 (DLL built ") + __DATE__ + " " + __TIME__ +
+          ")\nDLL: " + cacheLibraryPath().string() + "\n" + stringHeader.describe() +
+          "\n" + targetHeader.describe() + "\n" + sharedHeader.describe();
+      return nullptr;
+    }
+    auto windowsInclude = (targetHeader.found() ? targetHeader.path : sharedHeader.path).parent_path();
+    owned.emplace_back("--target=x86_64-w64-windows-gnu");
+    owned.emplace_back("--sysroot=" + root.string());
+    owned.emplace_back("-stdlib=libc++");
+    owned.emplace_back("-nostdinc++");
+    owned.emplace_back("-isystem"); owned.emplace_back((root / "include" / "c++" / "v1").string());
+    owned.emplace_back("-isystem"); owned.emplace_back(windowsInclude.string());
+    owned.emplace_back("-femulated-tls");
+    owned.emplace_back("-fexceptions");
+    owned.emplace_back("-funwind-tables");
+  } catch (const std::exception& error) { g_createError = error.what(); return nullptr; }
+#endif
   bool hasStd = false, hasResDir = false, hasTemplateParsing = false;
   bool hasVecAlgos = false, hasVecFloatAlgos = false;
   for (int i = 0; i < n_args; ++i) {
+#ifdef __linux__
+    std::string argLinux = extra_args[i];
+    if (argLinux == "-target" || argLinux == "--target" || argLinux.rfind("--target=",0) == 0 ||
+        argLinux.rfind("-target=",0) == 0 || argLinux == "--sysroot" || argLinux == "-isysroot" ||
+        argLinux.rfind("--sysroot=",0) == 0 || argLinux.rfind("-stdlib=",0) == 0 ||
+        argLinux == "-fno-emulated-tls" || argLinux == "-m32" || argLinux == "-mx32") {
+      g_createError = "Linux backend target, sysroot, C++ runtime and TLS mode are fixed";
+      return nullptr;
+    }
+#endif
+#ifdef HXCPP_JIT_MINGW
+    std::string arg = extra_args[i];
+    if (arg == "-target" || arg == "--target" || arg.rfind("--target=", 0) == 0 ||
+        arg.rfind("-target=", 0) == 0 || arg == "--sysroot" || arg == "-isysroot" ||
+        arg.rfind("--sysroot=", 0) == 0 || arg.rfind("-stdlib=", 0) == 0 ||
+        arg == "-fno-emulated-tls") {
+      g_createError = "MinGW backend target, sysroot, C++ runtime and TLS mode are fixed";
+      return nullptr;
+    }
+#endif
     owned.emplace_back(extra_args[i]);
     if (owned.back().find("_USE_STD_VECTOR_ALGORITHMS") != std::string::npos) hasVecAlgos = true;
     if (owned.back().find("_USE_STD_VECTOR_FLOATING_ALGORITHMS") != std::string::npos) hasVecFloatAlgos = true;
@@ -476,13 +642,21 @@ JitEngine* jit_create(const char* const* extra_args, int n_args) {
       hasTemplateParsing = true;
   }
   if (!hasStd) owned.emplace_back("-std=c++20");
+#ifndef HXCPP_JIT_MINGW
   if (!hasVecAlgos) owned.emplace_back("-D_USE_STD_VECTOR_ALGORITHMS=0");
   if (!hasVecFloatAlgos) owned.emplace_back("-D_USE_STD_VECTOR_FLOATING_ALGORITHMS=0");
+#endif
   if (!hasTemplateParsing) owned.emplace_back("-fno-delayed-template-parsing");
   bool hasTsStatics = false;
   for (auto& a : owned)
     if (a.rfind("-fthreadsafe-statics", 0) == 0 || a.rfind("-fno-threadsafe-statics", 0) == 0) hasTsStatics = true;
-  if (!hasTsStatics) owned.emplace_back("-fno-threadsafe-statics");
+  if (!hasTsStatics) {
+#ifdef __linux__
+    owned.emplace_back("-fthreadsafe-statics");
+#else
+    owned.emplace_back("-fno-threadsafe-statics");
+#endif
+  }
   if (!hasResDir) {
     std::string rd = findResourceDir();
     if (!rd.empty()) {
@@ -516,10 +690,30 @@ JitEngine* jit_create(const char* const* extra_args, int n_args) {
       g_createError = errToString(JTMB.takeError());
       return nullptr;
     }
+#ifdef HXCPP_JIT_MINGW
+    JTMB->getTargetTriple() = (*CI)->getTarget().getTriple();
+    JTMB->getOptions().ExceptionModel = llvm::ExceptionHandling::WinEH;
+    JTMB->getOptions().TrapUnreachable = true;
+    JTMB->getOptions().NoTrapAfterNoreturn = false;
+#endif
     auto JB = std::make_unique<llvm::orc::LLJITBuilder>();
     JB->setJITTargetMachineBuilder(std::move(*JTMB));
-#ifdef _MSC_VER
+#ifdef HXCPP_JIT_MINGW
+    hxcpp_JIT_configure_mingw_builder(*JB);
+#elif defined(_MSC_VER)
     hxcpp_JIT_configure_builder(*JB);
+#elif defined(__linux__)
+    JB->setNotifyCreatedCallback([](llvm::orc::LLJIT& jit) -> llvm::Error {
+      llvm::orc::SymbolMap symbols;
+      auto add = [&](const char* name, auto* address) {
+        symbols[jit.getExecutionSession().intern(name)] = {
+          llvm::orc::ExecutorAddr::fromPtr(address), llvm::JITSymbolFlags::Exported | llvm::JITSymbolFlags::Callable};
+      };
+      add("__emutls_get_address", &__emutls_get_address);
+      add("__divti3", &__divti3); add("__modti3", &__modti3);
+      add("__udivti3", &__udivti3); add("__umodti3", &__umodti3);
+      return jit.getMainJITDylib().define(llvm::orc::absoluteSymbols(std::move(symbols)));
+    });
 #endif
     JB->setCompileFunctionCreator([cache=&e->objectCache](llvm::orc::JITTargetMachineBuilder target)
         -> llvm::Expected<std::unique_ptr<llvm::orc::IRCompileLayer::IRCompiler>> {
@@ -570,6 +764,15 @@ JitFn* jit_bind_str(JitEngine* e, const char* name, const char* ret_type, const 
 void jit_destroy(JitEngine* e) { delete e; }
 
 const char* jit_llvm_version(void) { return LLVM_VERSION_STRING; }
+const char* jit_backend(void) {
+#ifdef HXCPP_JIT_MINGW
+  return "mingw";
+#elif defined(__linux__)
+  return "linux";
+#else
+  return "msvc";
+#endif
+}
 
 const char* jit_last_error(JitEngine* e) {
   return e ? e->lastError.c_str() : g_createError.c_str();
@@ -591,7 +794,8 @@ int jit_enable_std_string(JitEngine* e) { return runCode(e, kStdString); }
 int jit_get(JitEngine* e, const char* expr, JitValue* out) {
   ThunkFn t = cachedThunk(e, e->getCache, expr, std::string("__jit::put(*__r, (") + expr + "));");
   if (!t) return 1;
-  t(nullptr, out, 0);
+  if (!invokeThunk(e, t, nullptr, out, 0)) return 1;
+  if (out->kind == -2) { e->lastError = out->s ? out->s : "Invalid C++ get"; return 1; }
   return 0;
 }
 
@@ -599,7 +803,7 @@ int jit_set(JitEngine* e, const char* lvalue, JitValue* value) {
   ThunkFn t = cachedThunk(e, e->setCache, lvalue, std::string("__jit::assign(") + lvalue + ", __a[0], *__r);");
   if (!t) return 1;
   JitValue result;
-  t(value, &result, 1);
+  if (!invokeThunk(e, t, value, &result, 1)) return 1;
   if (result.kind == -2) { e->lastError = result.s ? result.s : "Invalid assignment"; return 1; }
   return 0;
 }
@@ -632,7 +836,7 @@ const char* jit_fn_last_error(JitFn* f) {
 int jit_call(JitFn* f, JitValue* args, int count, JitValue* ret) {
   if (!f || !f->life->engine || !ret) return 1;
   auto* e = f->life->engine;
-  f->thunk(args, ret, count);
+  if (!invokeThunk(e, f->thunk, args, ret, count)) return 1;
   if (ret->kind == -2) {
     e->lastError = ret->s ? ret->s : "Invalid C++ call";
     return 1;

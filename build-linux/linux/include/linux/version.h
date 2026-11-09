@@ -1,0 +1,11 @@
+#define LINUX_VERSION_CODE 266752
+#define KERNEL_VERSION(a,b,c) (((a) << 16) + ((b) << 8) + (c))
+#define RHEL_MAJOR 8
+#define RHEL_MINOR 10
+#define RHEL_RELEASE_VERSION(a,b) (((a) << 8) + (b))
+#define RHEL_RELEASE_CODE 2058
+#define RHEL_RELEASE "552"
+#define LINUX_VERSION_MAJOR 4
+#define LINUX_VERSION_PATCHLEVEL 18
+#define LINUX_VERSION_SUBLEVEL 0
+#define KERNEL_HEADERS_CHECKSUM "a5828cd4b4fb6621c08f079b4b1ab20d9a64bab4"

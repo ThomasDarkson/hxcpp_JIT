@@ -13,6 +13,8 @@ import cpp.Star;
 extern class Native {
 	@:native("jit_create_args") static function create(args:ConstCharStar):Star<RawEngine>;
 
+	@:native("jit_backend") static function backend():ConstCharStar;
+
 	@:native("jit_llvm_version") static function llvmVersion():ConstCharStar;
 
 	@:native("jit_destroy") static function destroy(e:Star<RawEngine>):Void;

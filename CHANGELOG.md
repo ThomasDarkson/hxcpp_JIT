@@ -1,3 +1,9 @@
+# 0.1.0
+## Changes
+- Added LLVM-MinGW support and made it the default on Windows
+- Added Linux x86_64 support with glibc 2.28 or newer
+- Updated LLVM to 23.1.5
+
 # 0.0.3
 ## Changes
 - Added `Cpp.evalCachedFile`, which compiles a file once and loads it from a cache folder on later launches, and `Cpp.cacheStatus`, which says what the cache did

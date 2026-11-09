@@ -1,5 +1,6 @@
 package;
 
+#if hxcpp_jit_msvc
 @:keep
 @:keepInit
 @:keepSub
@@ -107,8 +108,11 @@ namespace {
     static BootHook _bootHook;
 }
 ')
+#end
 class Setup {
+    #if hxcpp_jit_msvc
     static function init() {
         return true;
     }
+    #end
 }

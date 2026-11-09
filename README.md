@@ -9,9 +9,14 @@ hxcpp_JIT lets you compile and run native C++ code at runtime from Haxe. It wrap
 Define a function in a string or a file, then call it, read variables, or change them, all while your program is running.
 
 > [!NOTE]
-> Works only on hxcpp and Windows 10 (21H2 or higher) x64 or Windows 11.
+> Supports hxcpp on Windows x64 and Linux x86_64 (glibc 2.28+).
 
-Will be updated whenever a new version of LLVM comes out. Since LLVM updates bi-weekly, hxcpp_JIT will be updated bi-weekly as well.
+> [!WARNING]
+> This repository contains files larger than 100 MB, so to clone the repository safely, [Git LFS](https://git-lfs.com/) installation is needed. Make sure it is installed before you clone it.
+
+MinGW is the default backend on Windows. The Haxe application can still be built with MSVC, while the JIT uses bundled LLVM-MinGW headers and runtime libraries.
+
+The MSVC backend is still available with `-D hxcpp_jit_msvc`. Linux uses its own bundled headers and runtime libraries automatically.
 
 ## Installation
 ```
@@ -37,24 +42,20 @@ Add this to `project.xml`.
 ------------
 
 ### Requirements
-- Windows 10 x64 (21H2 or higher) or Windows 11
-- The Visual C++ v14 runtime DLLs (included with hxcpp_JIT, see [below](#automatic-setup))
-- Visual Studio 2019 (For building Haxe only)
-    - Windows 10 SDK (10.0.19041.0) (For building Haxe only)
-    - MSVC v142 - VS 2019 C++ x86/64 build tools (Latest) (For building Haxe only)
-- Visual Studio 2026 (installed automatically by [the setup](#automatic-setup))
-    - Windows 11 SDK (10.0.28000) (Works on Windows 10)
-    - MSVC Build Tools for x64/x86 build tools (Latest)
-    - C++ ATL for x64/x86 (Latest MSVC) (For building the .DLL only, not installed by the setup)
-- [CMake](https://cmake.org/download/) (For building the .DLL only)
-- [Ninja](https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-win.zip) (For building the .DLL only)
-- [LLVM Project 23.1.4](https://github.com/llvm/llvm-project/archive/refs/tags/llvmorg-23.1.4.zip) (For building the .DLL only)
+- Windows 10 x64 (21H2 or higher) or Windows 11, or Linux x86_64 with glibc 2.28 or newer
+- Haxe and hxcpp (For building the Haxe application only)
+- MSVC and the Windows SDK on Windows, or the normal C++ build tools on Linux (For building the Haxe application only)
+- The runtime files for your platform (included with the corresponding hxcpp_JIT backend, see [below](#shipping-the-executable))
 
-Everything except the items labeled "for building Haxe only" or "for building the .DLL only" is required for both building and running. Any Haxe program that uses hxcpp_JIT will not run without these requirements.
+To rebuild the native library, you also need [CMake](https://cmake.org/download/), [Ninja](https://github.com/ninja-build/ninja/releases) and LLVM/Clang source. The Linux bundle uses LLVM 23.1.5. The Windows MinGW build also needs an x64 UCRT [LLVM-MinGW toolchain](https://github.com/mstorsjo/llvm-mingw/releases).
 
-You don't have to install the MSVC build tools and Windows SDK yourself, the setup built into every program that uses hxcpp_JIT installs them. The Visual C++ v14 runtime DLLs are shipped with hxcpp_JIT itself (see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)), not installed by the setup.
+MinGW users do not need build tools installed on their PC. Linux users need system glibc 2.28 or newer. Your Haxe application and its other native libraries must also support the systems you want to run on.
+
+If you choose the MSVC JIT backend, users still need the MSVC Build Tools and Windows SDK. The setup described below can install them. The Visual C++ v14 runtime DLLs are shipped with that backend (see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)).
 
 ### Automatic setup
+This applies to the optional MSVC backend only. MinGW and Linux do not run this setup.
+
 hxcpp_JIT includes [hxcpp_JIT_setup](https://github.com/ThomasDarkson/hxcpp_JIT_setup), a small program that checks for the MSVC build tools and Windows SDK (Visual Studio 2026), and installs them if missing.
 
 The setup exe is **embedded in your compiled program**, so you don't need to ship the setup. When your program starts:
@@ -69,70 +70,71 @@ See the [hxcpp_JIT_setup README](https://github.com/ThomasDarkson/hxcpp_JIT_setu
 
 To update the embedded setup, replace `build/hxcpp_jit_setup.exe` in this project and recompile your Haxe project. It is read at Haxe compile time, so already compiled programs keep the old version.
 
-`hxcpp_JIT.dll` and `hxcpp_JIT.lib` are both precompiled and included with the project, so you can skip the .DLL building process entirely. When you compile the Haxe project, `hxcpp_JIT.dll` will be automatically copied to the build output directory. You still need everything required to run the application.
-
-The precompiled `hxcpp_JIT.dll` is compressed with [upx](https://github.com/upx/upx).
+The native library and its headers/runtime files are supplied in `build-mingw/` for Windows MinGW, `build/` for Windows MSVC and `build-linux/` for Linux. Use the bundle for your selected backend. The Haxe build copies the runtime files to the application output.
 
 ## Building the DLL
-This part of the README explains how to build the `hxcpp_JIT.dll` and `hxcpp_JIT.lib` that hxcpp_JIT actually needs.
+This part of the README explains how to rebuild the native library that hxcpp_JIT needs. Extract the complete LLVM/Clang source into `llvm-project/`.
 
-### Step 1
-Download [LLVM Project 23.1.4](https://github.com/llvm/llvm-project/archive/refs/tags/llvmorg-23.1.4.zip) and extract the source code into a folder called `llvm-project` in the root directory of the project. Make sure the put the **source files** in `llvm-project/`, not the **llvm-project-llvmorg-23.1.4** folder in the ZIP. 
-
-### Step 2
-You must configure LLVM before building it. Run **x64 Native Tools Command Prompt for VS** (Visual Studio 2026) **as administrator**. Run `cd path\to\hxcpp_JIT`, then switch to PowerShell by typing and entering `powershell`.
-
-After that, run this command.
+### MinGW
+Run these commands from an x64 Native Tools PowerShell with CMake, Ninja and the MSVC `lib.exe` tool available. Extract the x64 UCRT LLVM-MinGW toolchain into a separate folder first (e.g., C:\llvm-mingw).
 
 ```powershell
-cmake -S llvm-project/llvm -B llvm-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DLLVM_ENABLE_PROJECTS=clang -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_ENABLE_ASSERTIONS=OFF -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_DOCS=OFF -DCLANG_INCLUDE_TESTS=OFF -DCLANG_INCLUDE_DOCS=OFF -DLLVM_ENABLE_ZLIB=OFF -DLLVM_ENABLE_ZSTD=OFF -DLLVM_ENABLE_LIBXML2=OFF -DLLVM_PARALLEL_LINK_JOBS=2
+# First build, or after updating LLVM or LLVM-MinGW
+./scripts/build-mingw.ps1 -Toolchain C:/llvm-mingw
+
+# Native source changes, using the same LLVM build and toolchain
+./scripts/build-mingw.ps1 -Toolchain C:/llvm-mingw -SkipLLVM
 ```
 
-### Step 3
-To actually build LLVM, run this command.
+This builds LLVM and hxcpp_JIT with LLVM-MinGW, and packages the result into `build-mingw/`.
+
+### MSVC
+Run these commands from an x64 Native Tools PowerShell with MSVC, the Windows SDK, CMake and Ninja installed.
 
 ```powershell
-cmake --build llvm-build --target clangInterpreter clangFrontend clang-resource-headers LLVMOrcJIT LLVMX86CodeGen LLVMX86AsmParser LLVMX86Desc LLVMX86Info LLVMBitReader LLVMBitWriter LLVMTargetParser
+# First build, or after updating LLVM
+./scripts/build-msvc.ps1
+
+# Native source changes, using the same LLVM build
+./scripts/build-msvc.ps1 -SkipLLVM
 ```
 
-This will take a while.
+This builds the optional MSVC backend into `build/`. Add `-D hxcpp_jit_msvc` to the Haxe build, or `<define name="hxcpp_jit_msvc"/>` to an OpenFL project.
 
-### Step 4
-Now, to build `hxcpp_JIT.dll` and `hxcpp_JIT.lib`, run this command.
+### Linux
+Run this command to build with a glibc 2.28 baseline using Docker or Podman.
 
-```powershell
-$ws = (Get-Location).Path.Replace('\','/')
+```bash
+./scripts/build-linux.sh --llvm-version 23.1.5 --jobs 2
 ```
 
-After that, run this.
-
-```powershell
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl "-DLLVM_DIR=$ws/llvm-build/lib/cmake/llvm" "-DClang_DIR=$ws/llvm-build/lib/cmake/clang"
-```
-
-Finally, run this to build `hxcpp_JIT.dll` and `hxcpp_JIT.lib`.
-
-```powershell
-cmake --build build
-```
-
-This will create both files in the `build/` folder in the root directory. You can now compile the Haxe project with `haxe build.hxml` or, for OpenFL projects, `lime test windows` as you normally would.
+The Linux script downloads LLVM source and builds the bundle into `build-linux/`. Change `--llvm-version` when updating LLVM. Docker or Podman is needed for this build workflow.
 
 ## Shipping the executable
-If you are using hxcpp_JIT and ready to ship your program, make sure to include the following files and directories. These items are **necessary**, hxcpp_JIT won't run without them.
+Ship the files copied to the output for the backend you use.
 
+### Windows MinGW
+- `hxcpp_JIT.dll`
+- `libc++.dll`
+- `libunwind.dll`
+- `mingw/`
+- `clang-resources/`
+- The applicable license and third-party notices
+
+### Windows MSVC
 - `hxcpp_JIT.dll`
 - `clang-resources/`
-- `vcruntime140.dll`
-- `vcruntime140_1.dll`
-- `vcruntime140_threads.dll`
-- `msvcp140.dll`
-- `msvcp140_1.dll`
-- `msvcp140_2.dll`
-- `msvcp140_codecvt_ids.dll`
-- `msvcp140_atomic_wait.dll`
-- `vccorlib140.dll`
-- `concrt140.dll`
+- The Visual C++ runtime DLLs supplied with `build/`
+- The applicable license and third-party notices
+
+The MSVC Build Tools and Windows SDK must be installed on the user's PC. The setup is embedded in the Haxe executable, so it does not need to be shipped separately.
+
+### Linux
+- `libhxcpp_JIT.so`
+- `libgcc_s.so.1`
+- `linux/`
+- `clang-resources/`
+- `licenses/`
 
 ## Usage
 To use hxcpp_JIT, you will need either C++ code or a file containing it. Using a file is recommended for anything bigger than a few lines.
@@ -491,33 +493,11 @@ var safe = new SafeCpp();
 safe.cpp.evalCachedFile("core.cpp", "api.hpp", "cache/core");
 ```
 
-### Rebuilding for the cache
-Rebuild `hxcpp_JIT.dll` and `hxcpp_JIT.lib`, then recompile your Haxe project. Your existing LLVM build can be reused, LLVM itself doesn't need to be built again. Run the following to build the three LLVM libraries the cache needs, in the folder you built LLVM in:
-
-`cmake --build llvm-build --target LLVMBitReader LLVMBitWriter LLVMTargetParser`
-
-Then build hxcpp_JIT again like in [Step 4](#step-4):
-
-`cmake -S . -B build`
-
-`cmake --build build`
-
-For a new `build/` folder, use the full `cmake -S . -B build -G Ninja ...` command from Step 4 instead.
-
-### Testing the cache
-The cache has its own tests. After rebuilding, run these in **x64 Native Tools Command Prompt for VS**:
-
-`cl /std:c++17 /EHsc /MD /I native tests\cache_runtime.cpp build\hxcpp_JIT.lib /Fe:build\cache_runtime_test.exe`
-
-`build\cache_runtime_test.exe`
-
-It has to run next to `hxcpp_JIT.dll` in `build/`. It checks the first and later launches, fresh constructors, `bind`, `std::string`, exceptions, header edits that keep the file date, changed flags and damaged cache files. `tests/cache_logic_llvm19.cpp` runs the shared cache code on Linux with LLVM 19 libraries. See [COMPILATION_CACHE.md](COMPILATION_CACHE.md) for more.
-
 ## LLVM version
 `Cpp.LLVM_VERSION` is the LLVM version that the library was built with.
 
 ```haxe
-trace(Cpp.LLVM_VERSION); // 23.1.4
+trace(Cpp.LLVM_VERSION); // 23.1.5
 ```
 
 ## Errors
@@ -614,4 +594,4 @@ add.dispose();
 ## License
 hxcpp_JIT is licensed under the [Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for attribution.
 
-The precompiled `hxcpp_JIT.dll` contains parts of LLVM and Clang (Apache License v2.0 with LLVM Exceptions) and is compressed with UPX. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for details. The Microsoft Visual C++ runtime DLLs shipped with hxcpp_JIT, and the Build Tools/Windows SDK installed by the setup, are licensed by Microsoft under their own terms.
+The precompiled `hxcpp_JIT.dll` contains parts of LLVM and Clang (Apache License v2.0 with LLVM Exceptions). See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for details. The Microsoft Visual C++ runtime DLLs shipped with hxcpp_JIT, and the Build Tools/Windows SDK installed by the setup, are licensed by Microsoft under their own terms.

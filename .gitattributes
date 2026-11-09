@@ -1,1 +1,5 @@
 build/clang-resources/include/** linguist-vendored
+build-mingw/clang-resources/include/** linguist-vendored
+build-linux/clang-resources/include/** linguist-vendored
+build-mingw/hxcpp_JIT.dll filter=lfs diff=lfs merge=lfs -text
+build-linux/libhxcpp_JIT.so filter=lfs diff=lfs merge=lfs -text

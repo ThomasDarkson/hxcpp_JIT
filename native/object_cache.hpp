@@ -40,6 +40,24 @@ public:
     return llvm::MemoryBuffer::getMemBufferCopy(object,"cached object");
   }
   void notifyObjectCompiled(const llvm::Module* module, llvm::MemoryBufferRef object) override {
+#ifdef HXCPP_JIT_MINGW
+    if (const char* directory = std::getenv("HXCPP_JIT_DUMP_OBJECTS")) {
+      std::error_code directoryError;
+      std::filesystem::create_directories(directory, directoryError);
+      if (!directoryError) {
+        llvm::SmallString<256> file;
+        int fd = -1;
+        auto error = llvm::sys::fs::createUniqueFile(std::string(directory) + "/jit-%%%%%%.obj", fd, file);
+        if (!error) {
+          llvm::raw_fd_ostream output(fd, true);
+          output << object.getBuffer();
+          output.flush();
+          if (output.has_error()) output.clear_error();
+          std::fprintf(stderr, "MinGW COFF %s: %s\n", module->getModuleIdentifier().c_str(), file.c_str());
+        }
+      }
+    }
+#endif
     std::lock_guard<std::mutex> lock(mutex);
     auto entry=entries.find(module->getModuleIdentifier());if(entry==entries.end())return;
     const auto& directory=entry->second.directory;const auto& key=entry->second.key;
