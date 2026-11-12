@@ -121,6 +121,10 @@ static std::string cacheHash(llvm::StringRef data) {
 
 struct JitEngine {
   std::shared_ptr<SessionLife> life = std::make_shared<SessionLife>();
+#ifdef HXCPP_JIT_MINGW
+  std::shared_ptr<hxjit::LibraryRegistry> libraries = std::make_shared<hxjit::LibraryRegistry>();
+#endif
+  std::vector<std::filesystem::path> loadedLibraries;
   CompilationObjectCache objectCache;
   std::unique_ptr<clang::Interpreter> interp;
   std::string                         diagText;
@@ -140,6 +144,29 @@ struct JitEngine {
 };
 
 static thread_local std::string g_createError;
+
+class LiveDiagnosticPrinter final : public clang::TextDiagnosticPrinter {
+  llvm::raw_ostream& stream;
+  std::string& text;
+
+public:
+  LiveDiagnosticPrinter(llvm::raw_ostream& stream,
+                        clang::DiagnosticOptions& options,
+                        std::string& text)
+      : clang::TextDiagnosticPrinter(stream, options), stream(stream), text(text) {}
+
+  void HandleDiagnostic(clang::DiagnosticsEngine::Level level,
+                        const clang::Diagnostic& info) override {
+    stream.flush();
+    const size_t begin = text.size();
+    clang::TextDiagnosticPrinter::HandleDiagnostic(level, info);
+    stream.flush();
+    if (text.size() > begin) {
+      std::fwrite(text.data() + begin, 1, text.size() - begin, stderr);
+      std::fflush(stderr);
+    }
+  }
+};
 
 static const char* kPrelude = R"PRELUDE(
 extern "C" void jit_value_set_string(struct JitValue*, const char*);
@@ -680,7 +707,7 @@ JitEngine* jit_create(const char* const* extra_args, int n_args) {
     return nullptr;
   }
   (*CI)->getDiagnostics().setClient(
-      new clang::TextDiagnosticPrinter(*e->diagStream, (*CI)->getDiagnosticOpts()),
+      new LiveDiagnosticPrinter(*e->diagStream, (*CI)->getDiagnosticOpts(), e->diagText),
       true);
 
     auto IEB = std::make_unique<clang::IncrementalExecutorBuilder>();
@@ -699,7 +726,7 @@ JitEngine* jit_create(const char* const* extra_args, int n_args) {
     auto JB = std::make_unique<llvm::orc::LLJITBuilder>();
     JB->setJITTargetMachineBuilder(std::move(*JTMB));
 #ifdef HXCPP_JIT_MINGW
-    hxcpp_JIT_configure_mingw_builder(*JB);
+    hxcpp_JIT_configure_mingw_builder(*JB, e->libraries);
 #elif defined(_MSC_VER)
     hxcpp_JIT_configure_builder(*JB);
 #elif defined(__linux__)
@@ -779,6 +806,41 @@ const char* jit_last_error(JitEngine* e) {
 }
 
 int jit_eval(JitEngine* e, const char* code) { return runCode(e, code); }
+
+int jit_load_library(JitEngine* e, const char* path) {
+  if (!e) { g_createError = "C++ JIT session has been disposed"; return 1; }
+  try {
+    if (!path || !*path) throw std::runtime_error("Choose a shared library file");
+    const auto full = std::filesystem::canonical(std::filesystem::u8path(path));
+    if (!std::filesystem::is_regular_file(full))
+      throw std::runtime_error("Shared library is not a regular file: " + full.u8string());
+    for (const auto& previous : e->loadedLibraries)
+      if (previous == full) { e->lastError.clear(); return 0; }
+    const auto filename = full.u8string();
+    const auto history = cacheHash(e->historyKey + "\nload-library\n" + filename +
+        "\n" + cacheHash(hxcache::read(full)));
+#ifdef HXCPP_JIT_MINGW
+    e->libraries->load(full);
+#else
+    auto executor = e->interp->getExecutionEngine();
+    if (!executor) { e->lastError = errToString(executor.takeError()); return 1; }
+    if (auto error = executor->LoadDynamicLibrary(filename.c_str())) {
+      e->lastError = errToString(std::move(error));
+      return 1;
+    }
+#endif
+    e->loadedLibraries.push_back(full);
+    e->historyKey = history;
+    e->lastError.clear();
+    return 0;
+  } catch (const std::exception& error) {
+    e->lastError = error.what();
+    return 1;
+  } catch (...) {
+    e->lastError = "Unknown error loading shared library";
+    return 1;
+  }
+}
 
 int jit_eval_cached(JitEngine* e, const char* code, const char* declarations, const char* directory) {
   if (!e || !code || !declarations || !directory) return 1;

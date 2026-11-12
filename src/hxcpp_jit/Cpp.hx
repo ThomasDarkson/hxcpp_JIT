@@ -68,6 +68,7 @@ import sys.io.File;
 	```
 
 	@see `eval`
+	@see `loadLibrary`
 	@see `evalCachedFile`
 	@see `get`
 	@see `set`
@@ -176,6 +177,38 @@ class Cpp {
 		}
 
 		check(Native.eval(engine, ConstCharStar.fromString(code)));
+	}
+
+	/**
+		Loads a shared library (`.dll` or `.so`) so the C++ code in this session can call its exports.
+
+		Load the library first, then declare the functions you need and use them:
+
+		```haxe
+		cpp.loadLibrary("mathlib.dll"); // libmathlib.so on Linux
+		cpp.eval('extern "C" int triple(int x);');
+		trace(cpp.call("triple", [4])); // 12
+		```
+
+		Only the declaration is needed in C++, the function itself comes from the library.
+		Relative paths are resolved against the current working directory.
+		Loading the same file again does nothing.
+
+		The library stays loaded until the session is disposed.
+
+		The path and contents of every loaded library are part of the compilation cache check,
+		so call `loadLibrary` before `evalCachedFile` and in the same order on every launch.
+
+		@param path Path to the shared library.
+		@see `eval`
+		@see `evalCachedFile`
+		@throws CppError If `path` is empty, the file could not be found, or the library or one of its dependencies could not be loaded.
+	**/
+	public function loadLibrary(path:String):Void {
+		ensureAlive();
+		if (path == null || StringTools.trim(path) == "")
+			throw new CppError("Choose a shared library file");
+		check(Native.loadLibrary(engine, ConstCharStar.fromString(path)));
 	}
 
 	/**

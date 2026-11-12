@@ -52,12 +52,5 @@ strip --strip-unneeded -o "$native_build/libhxcpp_JIT.stripped.so" "$native_buil
 cp "$native_build/libhxcpp_JIT.stripped.so" build-linux/libhxcpp_JIT.so
 cp -L "$("$CXX" -print-file-name=libgcc_s.so.1)" build-linux/libgcc_s.so.1
 "$python" scripts/linux/package-headers.py build-linux "$resources" "$source_dir"
-{
-    echo "LLVM=$LLVM_VERSION"; echo 'target=x86_64-unknown-linux-gnu'; echo 'minimum-glibc=2.28'
-    echo 'C++ runtime=complete static libstdc++; shared libgcc_s.so.1 unwinder'
-    echo "build-image=${BUILD_IMAGE:-local-glibc-2.28}"
-    "$CXX" --version | head -n 1
-    sha256sum "$archive"
-} > build-linux/linux-backend.txt
 "$python" scripts/linux/verify-glibc.py build-linux
 echo 'Build complete: build-linux/ packaged and glibc compatibility verified. glibc is not bundled.'

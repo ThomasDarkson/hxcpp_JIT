@@ -26,7 +26,6 @@ build-mingw/*
 !build-mingw/hxcpp_JIT.lib
 !build-mingw/libc++.dll
 !build-mingw/libunwind.dll
-!build-mingw/mingw-backend.txt
 !build-mingw/clang-resources/
 !build-mingw/clang-resources/**
 !build-mingw/mingw/
@@ -41,4 +40,3 @@ __pycache__/
 !/build-linux/linux/
 !/build-linux/clang-resources/
 !/build-linux/licenses/
-!/build-linux/linux-backend.txt

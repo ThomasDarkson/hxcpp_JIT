@@ -1,3 +1,10 @@
+# 0.1.1
+## Additions
+- Added `Cpp.loadLibrary`, which loads a shared library from the specified path (like `.dll` files on Windows and `.so` files on Linux)
+
+## Fixes
+- Clang's error text is now printed as it is produced, so it is no longer lost when Clang crashes while compiling
+
 # 0.1.0
 ## Changes
 - Added LLVM-MinGW support and made it the default on Windows

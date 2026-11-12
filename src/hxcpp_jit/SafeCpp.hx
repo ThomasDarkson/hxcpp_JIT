@@ -53,6 +53,13 @@ class SafeCpp {
         });
     }
 
+    public function loadLibrary(path:String):Void {
+        attempt("loadLibrary", [path], () -> {
+            requireCpp().loadLibrary(path);
+            return null;
+        });
+    }
+
     public function evalCachedFile(source:String, declarations:String, cacheDirectory:String):String {
         return attempt("evalCachedFile", [source, declarations, cacheDirectory], () -> {
             return requireCpp().evalCachedFile(source, declarations, cacheDirectory);

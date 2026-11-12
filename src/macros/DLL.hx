@@ -64,7 +64,7 @@ class DLL {
                 if (!FileSystem.exists(backendDir + "mingw\\include\\windows.h") &&
                     !FileSystem.exists(backendDir + "mingw\\x86_64-w64-mingw32\\include\\windows.h"))
                     Context.fatalError('MinGW Windows headers are missing from $backendDir', Context.currentPos());
-                for (entry in ["hxcpp_JIT.dll", "hxcpp_JIT.lib", "mingw-backend.txt", "mingw\\include\\c++\\v1\\string", "clang-resources\\include"]) {
+                for (entry in ["hxcpp_JIT.dll", "hxcpp_JIT.lib", "mingw\\include\\c++\\v1\\string", "clang-resources\\include"]) {
                     if (!FileSystem.exists(backendDir + entry))
                         Context.fatalError('MinGW backend is incomplete: $backendDir$entry. Run scripts/build-mingw.ps1.', Context.currentPos());
                 }

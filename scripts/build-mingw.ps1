@@ -82,6 +82,5 @@ try {
     if (Test-Path $resources) { Remove-Item -Recurse -Force -LiteralPath $resources }
     New-Item -ItemType Directory -Force -Path $resources | Out-Null
     Copy-Item -Recurse -LiteralPath (Join-Path $resourceRoots[0].FullName 'include') -Destination $resources
-    "Experimental LLVM-MinGW x64 UCRT backend; Windows validation required." | Set-Content (Join-Path $Output 'mingw-backend.txt')
 } finally { $env:PATH = $oldPath }
 Write-Host "MinGW backend built at $Output"

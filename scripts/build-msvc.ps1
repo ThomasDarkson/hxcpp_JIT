@@ -180,8 +180,6 @@ foreach ($match in [regex]::Matches($dependencies, '(?im)^\s*((?:msvcp|vcruntime
     $name = $match.Groups[1].Value
     if (!(Test-Path -LiteralPath (Join-Path $Output $name))) { throw "Required MSVC runtime $name was not packaged; check -RedistDir." }
 }
-"MSVC x64 backend; LLVM $builtVersion; select -D hxcpp_jit_msvc in Haxe." |
-    Set-Content -LiteralPath (Join-Path $Output 'msvc-backend.txt')
 
 Write-Host "MSVC backend built at $Output (LLVM $builtVersion)."
 Write-Host 'Build the Haxe application with -D hxcpp_jit_msvc'

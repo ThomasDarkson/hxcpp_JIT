@@ -7,6 +7,7 @@ EXPORTS
   jit_llvm_version
   jit_backend
   jit_eval
+  jit_load_library
   jit_eval_cached
   jit_cache_status
   jit_enable_std_string

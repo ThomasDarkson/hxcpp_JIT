@@ -384,6 +384,29 @@ The first argument of the constructor takes extra flags for Clang. The default s
 var cpp = new Cpp(["-std=c++17", "-O2", "-I/my/include"]);
 ```
 
+## Shared libraries
+`loadLibrary` loads a shared library (`.dll` on Windows, `.so` on Linux) so the C++ code in the session can call its exports. Load it first, then declare the functions you need with `eval`. The declaration is enough, the function itself comes from the library.
+
+```haxe
+import hxcpp_jit.Cpp;
+
+class Main {
+	static function main() {
+		var cpp = new Cpp();
+		cpp.loadLibrary("mathlib.dll"); // libmathlib.so on Linux
+		cpp.eval("extern \"C\" int triple(int x);");
+		trace(cpp.call("triple", [4])); // 12
+		cpp.dispose();
+	}
+}
+```
+
+Relative paths are resolved against the current working directory. Loading the same file again does nothing, and the library stays loaded until the session is disposed. If the file or one of its dependencies can't be loaded, `loadLibrary` throws a `CppError`.
+
+Use `extern "C"` for functions you declare, the same way as for `address`, so their names match the ones the library exports. On MinGW, `__imp_` names such as the ones used for `__declspec(dllimport)` work too.
+
+Libraries are part of the [compilation cache](#compilation-cache) check, so load them before `evalCachedFile`, and in the same order on every launch.
+
 ## Compilation cache
 Compiling a big C++ file with Clang can take a long time, and `eval` does it again every time your program starts. `evalCachedFile` compiles a file once, saves the result to a folder, and loads it from there on the next launches.
 
@@ -463,6 +486,7 @@ The cache is checked every time, using a SHA-256 hash of every file the compiler
 - The source, the declarations, or any header they include. Deleted files count too.
 - The compiler flags, including the ones hxcpp_JIT adds by itself.
 - Anything you `eval`'d on the same session before `evalCachedFile`.
+- The path or contents of a library loaded with `loadLibrary` before `evalCachedFile`, or the order they were loaded in.
 - The CPU features, the LLVM version, or `hxcpp_JIT.dll` itself.
 - The working directory and the build tool environment variables.
 - The location of the Windows SDK or C++ standard library headers, even if the old one is still installed.

@@ -19,6 +19,7 @@ const char* jit_llvm_version(void);
 const char* jit_backend(void);
 
 int   jit_eval(JitEngine* e, const char* code);
+int   jit_load_library(JitEngine* e, const char* path);
 int   jit_eval_cached(JitEngine* e, const char* code, const char* declarations, const char* directory);
 const char* jit_cache_status(JitEngine* e);
 int   jit_enable_std_string(JitEngine* e);

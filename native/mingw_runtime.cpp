@@ -149,7 +149,10 @@ public:
 class MinGWImports : public DefinitionGenerator {
   std::vector<HMODULE> modules;
   std::map<std::string, std::unique_ptr<void*>> imports;
+  std::shared_ptr<hxjit::LibraryRegistry> libraries;
 public:
+  explicit MinGWImports(std::shared_ptr<hxjit::LibraryRegistry> libraries)
+      : libraries(std::move(libraries)) {}
   ~MinGWImports() override { for (auto module : modules) FreeLibrary(module); }
   Error load(const fs::path& path, bool system = false) {
     HMODULE module = LoadLibraryExW(path.c_str(), nullptr, system ? LOAD_LIBRARY_SEARCH_SYSTEM32 :
@@ -182,7 +185,11 @@ public:
       void* address = nullptr;
       for (HMODULE module : modules)
         if (auto proc = GetProcAddress(module, exported)) { address = reinterpret_cast<void*>(proc); break; }
-      if (!address) continue;
+      if (!address) {
+        if (auto* loaded = libraries->find(name))
+          found[symbol.first] = {ExecutorAddr::fromPtr(loaded), JITSymbolFlags::Exported};
+        continue;
+      }
       auto flags = JITSymbolFlags::Exported;
       if (indirect) {
         auto& slot = imports[name];
@@ -196,10 +203,10 @@ public:
   }
 };
 
-Error configureRuntime(LLJIT& jit) {
+Error configureRuntime(LLJIT& jit, std::shared_ptr<hxjit::LibraryRegistry> libraries) {
   try {
     auto root = hxcpp_JIT_mingw_root();
-    auto imports = std::make_unique<MinGWImports>();
+    auto imports = std::make_unique<MinGWImports>(std::move(libraries));
     imports->addBackend();
     for (const wchar_t* name : {L"libunwind.dll", L"libc++.dll"})
       if (auto error = imports->loadRuntime(root / "bin" / name)) return error;
@@ -240,8 +247,11 @@ Error configureRuntime(LLJIT& jit) {
 }
 }
 
-void hxcpp_JIT_configure_mingw_builder(LLJITBuilder& builder) {
-  builder.setNotifyCreatedCallback(configureRuntime);
+void hxcpp_JIT_configure_mingw_builder(LLJITBuilder& builder,
+    std::shared_ptr<hxjit::LibraryRegistry> libraries) {
+  builder.setNotifyCreatedCallback([libraries = std::move(libraries)](LLJIT& jit) {
+    return configureRuntime(jit, libraries);
+  });
   builder.setObjectLinkingLayerCreator([](ExecutionSession& session, jitlink::JITLinkMemoryManager&)
       -> Expected<std::unique_ptr<ObjectLayer>> {
     auto layer = std::make_unique<RTDyldObjectLinkingLayer>(session,
