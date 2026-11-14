@@ -190,7 +190,18 @@ template <class... A> using index_sequence_for = make_index_sequence<sizeof...(A
 
 template <class T> struct always_false { static constexpr bool value = false; };
 
-template <class U> struct string_conv { static constexpr bool enabled = false; };
+template <class...> struct make_void { using type = void; };
+template <class... T> using void_t = typename make_void<T...>::type;
+
+template <class U, class = void> struct string_conv { static constexpr bool enabled = false; };
+template <class U>
+struct string_conv<U, void_t<typename U::traits_type,
+    decltype(static_cast<const char*>(static_cast<const U&>(*(U*)0).c_str())),
+    decltype(U(static_cast<const char*>(nullptr)))>> {
+  static constexpr bool enabled = true;
+  static U get(JitValue& v) { return v.kind == 4 && v.s ? U(v.s) : U(); }
+  static void put(JitValue& r, const U& x) { jit_value_set_string(&r, x.c_str()); }
+};
 template <bool B, class T, class F> struct cond { using type = T; };
 template <class T, class F> struct cond<false, T, F> { using type = F; };
 template <class T> using bare = __remove_cv(__remove_reference_t(T));
@@ -334,17 +345,6 @@ void assign(T& dst, V& v, JitValue& r) {
   dst = get<T>(v);
 }
 
-}
-)PRELUDE";
-
-static const char* kStdString = R"PRELUDE(
-#include <string>
-namespace __jit {
-template <> struct string_conv<std::string> {
-  static constexpr bool enabled = true;
-  static std::string get(JitValue& v) { return v.kind == 4 && v.s ? std::string(v.s) : std::string(); }
-  static void put(JitValue& r, const std::string& x) { jit_value_set_string(&r, x.c_str()); }
-};
 }
 )PRELUDE";
 
@@ -849,9 +849,6 @@ int jit_eval_cached(JitEngine* e, const char* code, const char* declarations, co
   catch (...) { e->lastError = "Unknown compilation cache failure"; return 1; }
 }
 const char* jit_cache_status(JitEngine* e) { return e ? e->cacheStatus.c_str() : ""; }
-
-
-int jit_enable_std_string(JitEngine* e) { return runCode(e, kStdString); }
 
 int jit_get(JitEngine* e, const char* expr, JitValue* out) {
   ThunkFn t = cachedThunk(e, e->getCache, expr, std::string("__jit::put(*__r, (") + expr + "));");

@@ -22,7 +22,6 @@ int   jit_eval(JitEngine* e, const char* code);
 int   jit_load_library(JitEngine* e, const char* path);
 int   jit_eval_cached(JitEngine* e, const char* code, const char* declarations, const char* directory);
 const char* jit_cache_status(JitEngine* e);
-int   jit_enable_std_string(JitEngine* e);
 int   jit_get(JitEngine* e, const char* expr, JitValue* out);
 int   jit_set(JitEngine* e, const char* lvalue, JitValue* value);
 void* jit_symbol(JitEngine* e, const char* ir_name);

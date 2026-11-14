@@ -29,8 +29,6 @@ extern class Native {
 
 	@:native("jit_cache_status") static function cacheStatus(e:Star<RawEngine>):ConstCharStar;
 
-	@:native("jit_enable_std_string") static function enableStdString(e:Star<RawEngine>):Int;
-
 	@:native("jit_get") static function get(e:Star<RawEngine>, expr:ConstCharStar, out:Star<RawValue>):Int;
 
 	@:native("jit_set") static function set(e:Star<RawEngine>, lvalue:ConstCharStar, v:Star<RawValue>):Int;

@@ -32,7 +32,7 @@ class SafeCpp {
         If not null, called every time an exception is caught.
 
         The arguments are the error, the underlying session (`null` if it could not be created),
-        and the name of the method that threw: `new`, `eval`, `enableStdString`, `get`, `set`, `bind`,
+        and the name of the method that threw: `new`, `eval`, `get`, `set`, `bind`,
         `call`, `address` or `dispose`. Errors from a function returned by `bind` use
         `SafeCppFunction.call` and `SafeCppFunction.dispose`.
 
@@ -42,8 +42,8 @@ class SafeCpp {
     **/
     public var onError:CppError->Cpp->String->Array<Dynamic>->Void;
 
-    public function new(?args:Array<String>, stdString:Bool = true) {
-        cpp = attempt("new", [args, stdString], () -> new Cpp(args, stdString));
+    public function new(?args:Array<String>) {
+        cpp = attempt("new", [args], () -> new Cpp(args));
     }
 
     public function eval(source:String, ?isFile:Bool):Void {
@@ -63,13 +63,6 @@ class SafeCpp {
     public function evalCachedFile(source:String, declarations:String, cacheDirectory:String):String {
         return attempt("evalCachedFile", [source, declarations, cacheDirectory], () -> {
             return requireCpp().evalCachedFile(source, declarations, cacheDirectory);
-        });
-    }
-
-    public function enableStdString():Void {
-        attempt("enableStdString", [], () -> {
-            requireCpp().enableStdString();
-            return null;
         });
     }
 
@@ -133,12 +126,8 @@ class SafeCpp {
             type = "int";
         else if (ttype == TFloat)
             type = "double";
-        else if (Std.isOfType(value, String)) {
-            if (!session.stdStringEnabled)
-                throw new CppError("Can't create a string variable without std::string support (see enableStdString)");
-            type = "std::string";
-        } else
-            throw new CppError("Can't create a variable from a value of type " + Std.string(Type.typeof(value)));
+        else if (Std.isOfType(value, String))
+            return "#include <string>\nstd::string " + name + "{};";
         return type + " " + name + "{};";
     }
 

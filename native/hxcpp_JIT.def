@@ -10,7 +10,6 @@ EXPORTS
   jit_load_library
   jit_eval_cached
   jit_cache_status
-  jit_enable_std_string
   jit_get
   jit_set
   jit_symbol

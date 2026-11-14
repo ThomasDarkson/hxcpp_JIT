@@ -333,39 +333,6 @@ class Main {
 
 A `CppPointer` is only a number. It does not keep the memory it points to alive, and the library does not check that the address is valid, so using a pointer after the variable it points to is gone is undefined behavior, as in C++.
 
-## std::string
-`std::string` arguments and results are enabled by default. This needs the C++ standard library headers to be on the machine.
-
-```haxe
-import hxcpp_jit.Cpp;
-
-class Main {
-	static function main() {
-		var cpp = new Cpp();
-		cpp.eval("
-			#include <string>
-			std::string greet(std::string name) {
-				return \"Hello, \" + name;
-			}
-		");
-		trace(cpp.call("greet", ["Haxe"])); // Hello, Haxe
-	}
-}
-```
-
-If the headers aren't available, creating the session throws a `CppError`. To skip `std::string` support, pass `false` as the second constructor argument. It can be turned on later with `enableStdString`, which does nothing if it is already on. `stdStringEnabled` tells you the current state.
-
-```haxe
-var cpp = new Cpp(null, false); // No std::string yet
-trace(cpp.stdStringEnabled); // false
-cpp.enableStdString(); // Throws a CppError if the headers are missing
-trace(cpp.stdStringEnabled); // true
-```
-
-Without `std::string` support, use `const char*` in your C++ code.
-
-[hxcpp_JIT_setup](https://github.com/ThomasDarkson/hxcpp_JIT_setup) already installs needed headers.
-
 ## Supported C++
 hxcpp_JIT runs real Clang, so most of C++ works, including:
 
@@ -563,10 +530,10 @@ class Main {
 }
 ```
 
-It has the same methods as `Cpp`: `eval`, `enableStdString`, `get`, `set`, `bind`, `call`, `address` and `dispose`, and the same constructor arguments.
+It has the same methods as `Cpp`: `eval`, `get`, `set`, `bind`, `call`, `address` and `dispose`, and the same constructor arguments.
 
 ### onError
-Set `onError` to be called every time an error is caught. It receives the error, the underlying `Cpp` session (`null` if the session could not be created), and the name of the method that failed: `new`, `eval`, `enableStdString`, `get`, `set`, `bind`, `call`, `address` or `dispose`. Errors from a function returned by `bind` are reported as `SafeCppFunction.call` and `SafeCppFunction.dispose`.
+Set `onError` to be called every time an error is caught. It receives the error, the underlying `Cpp` session (`null` if the session could not be created), and the name of the method that failed: `new`, `eval`, `get`, `set`, `bind`, `call`, `address` or `dispose`. Errors from a function returned by `bind` are reported as `SafeCppFunction.call` and `SafeCppFunction.dispose`.
 
 The last argument is an array with the arguments the method was called with, in the order of its signature. `eval("int i = zero;")` gives `["int i = zero;", null]`, `set("x", 1, true)` gives `["x", 1, true]`, and `call("f", [1, 2])` gives `["f", [1, 2]]`. Methods without arguments, like `dispose`, give an empty array.
 
@@ -590,7 +557,7 @@ trace(cpp.get("x")); // 64
 | `Bool` | `bool` |
 | `Int` | `int` |
 | `Float` | `double` |
-| `String` | `std::string` (needs `stdStringEnabled`) |
+| `String` | `std::string` |
 | `CppPointer` or `null` | `void*` |
 
 Only plain names are created. `point.x` or `arr[2]` still need the variable declared with `eval`. Haxe can't tell `64` from `64.0` at runtime, so both create an `int`. Declare the variable with `eval` for any other type. Later sets convert to the variable's type like a C++ assignment.

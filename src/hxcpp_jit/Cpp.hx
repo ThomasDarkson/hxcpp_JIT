@@ -52,7 +52,7 @@ import sys.io.File;
 	| `Int` | integral types, enums |
 	| `Bool` | `bool` |
 	| `Float` | `float`, `double` |
-	| `String` | `const char*`, `char*`, `std::string` (see `stdStringEnabled`) |
+	| `String` | `const char*`, `char*`, `std::string` |
 	| `CppPointer` | pointers |
 	| `null` | `void`, null pointer |
 
@@ -92,16 +92,6 @@ class Cpp {
 	public static var LLVM_VERSION(default, never):String = Native.llvmVersion().toString();
 
 	/**
-		Whether `std::string` arguments and results are allowed in `call`, `get` and `set`.
-
-		This is `true` right after creation unless the instance was created with
-		`stdString` set to `false` and `enableStdString` has not been called since.
-
-		@see `enableStdString`
-	**/
-	public var stdStringEnabled(default, null):Bool = false;
-
-	/**
 		What the compilation cache did during the last `evalCachedFile` call, e.g. `Compiled and cached` or
 		`Loaded compiled cache (IR + machine code)`.
 
@@ -122,10 +112,9 @@ class Cpp {
 		Every instance is its own session. Functions and variables from one instance are not visible to another.
 
 		@param args Extra clang flags, e.g. `["-std=c++17", "-O2", "-I/my/include"]`. Default standard is `-std=c++20`.
-		@param stdString Whether to enable `std::string` support right away. If enabling fails, an exception is thrown. Default is `true`.
 		@throws CppError If the session could not be created, or `std::string` could not be enabled.
 	**/
-	public function new(?args:Array<String>, stdString:Bool = true) {
+	public function new(?args:Array<String>) {
 		#if !hxcpp_jit_msvc
         var backend = Native.backend().toString();
         if (backend != "mingw" && backend != "linux")
@@ -134,16 +123,6 @@ class Cpp {
 		engine = Native.create(ConstCharStar.fromString(args == null ? "" : args.join("\n")));
 		if (engine == null)
 			throw new CppError("Failed to create JIT: " + Native.lastError(null).toString());
-
-		if (stdString) {
-			try {
-				enableStdString();
-			} catch (e:CppError) {
-				Native.destroy(engine);
-				engine = null;
-				throw new CppError("Failed to enable std::string (are the C++ standard library headers available? Pass stdString = false to skip it): " + e.message);
-			}
-		}
 	}
 
 	/**
@@ -259,25 +238,6 @@ class Cpp {
 		check(Native.evalCached(engine, ConstCharStar.fromString(sourceCode), ConstCharStar.fromString(interfaceCode),
 			ConstCharStar.fromString(haxe.io.Path.normalize(haxe.io.Path.isAbsolute(cacheDirectory) ? cacheDirectory : haxe.io.Path.join([Sys.getCwd(), cacheDirectory])))));
 		return Native.cacheStatus(engine).toString();
-	}
-
-	/**
-		Allows `std::string` arguments and results in `call`, `get` and `set`.
-
-		Does nothing if it is already enabled, which is the default for new instances (see the `stdString` argument of `new()`).
-		Needs the C++ standard library headers on this machine.
-		Without it, use `const char*` in your C++ code.
-
-		@see `stdStringEnabled`
-		@throws CppError If the standard library headers could not be found.
-	**/
-	public function enableStdString():Void {
-		ensureAlive();
-		if (stdStringEnabled)
-			return;
-
-		check(Native.enableStdString(engine));
-		stdStringEnabled = true;
 	}
 
 	/**

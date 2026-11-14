@@ -1,3 +1,10 @@
+# 0.1.2
+## Changes
+- Made it so scripts that don't use `<string>` no longer pay the cost of including it anyway, but scripts that do use `std::string` now have to include `<string>` first
+
+## Removals
+- `stdString` in `Cpp`'s constructor, `enableStdString()` and `stdStringEnabled` are removed due to recent changes mentioned above
+
 # 0.1.1
 ## Additions
 - Added `Cpp.loadLibrary`, which loads a shared library from the specified path (like `.dll` files on Windows and `.so` files on Linux)
