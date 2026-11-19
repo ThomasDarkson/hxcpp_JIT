@@ -7,12 +7,12 @@
 #ifndef _INC__MINGW_H
 #define _INC__MINGW_H
 
-#include "_mingw_mac.h"
-#include "_mingw_secapi.h"
+#include <_mingw_mac.h>
+#include <_mingw_secapi.h>
 
 /* Include _cygwin.h if we're building a Cygwin application. */
 #ifdef __CYGWIN__
-#include "_cygwin.h"
+#include <_cygwin.h>
 #endif
 
 /* Target specific macro replacement for type "long".  In the Windows API,
@@ -28,46 +28,24 @@
 
 /* C/C++ specific language defines.  */
 #ifndef __GNUC__
-# ifndef __MINGW_IMPORT
-#  define __MINGW_IMPORT  __declspec(dllimport)
-# endif
-# ifndef _CRTIMP
-#  define _CRTIMP  __declspec(dllimport)
-# endif
-# define __DECLSPEC_SUPPORTED
-# define __attribute__(x) /* nothing */
-#else /* __GNUC__ */
-# ifdef __declspec
-#  ifndef __MINGW_IMPORT
-/* Note the extern. This is needed to work around GCC's
-limitations in handling dllimport attribute.  */
-#   define __MINGW_IMPORT  extern __attribute__ ((__dllimport__))
-#  endif
 #  ifndef _CRTIMP
-#    undef __USE_CRTIMP
-#    if !defined (_CRTBLD) && !defined (_SYSCRT)
-#      define __USE_CRTIMP 1
-#    endif
-#    ifdef __USE_CRTIMP
-#      define _CRTIMP  __attribute__ ((__dllimport__))
+#    define _CRTIMP __declspec(dllimport)
+#  endif
+#  define __attribute__(x) /* nothing */
+#else /* __GNUC__ */
+#  ifndef _CRTIMP
+#    if defined(__declspec) && !defined (_CRTBLD) && !defined (_SYSCRT)
+#      define _CRTIMP __attribute__ ((__dllimport__))
 #    else
 #      define _CRTIMP
 #    endif
 #  endif
-#  define __DECLSPEC_SUPPORTED
-# else /* __declspec */
-#  undef __DECLSPEC_SUPPORTED
-#  undef __MINGW_IMPORT
-#  ifndef _CRTIMP
-#   define _CRTIMP
-#  endif
-# endif /* __declspec */
 #endif /* __GNUC__ */
 
 #ifdef _MSC_VER
-#define USE___UUIDOF	1
+#define __MINGW_USE___UUIDOF	1
 #else
-#define USE___UUIDOF	0
+#define __MINGW_USE___UUIDOF	0
 #endif
 
 #if !defined(_MSC_VER) && !defined(_inline)
@@ -208,12 +186,6 @@ limitations in handling dllimport attribute.  */
 #define __MINGW_NOTHROW
 #endif
 
-#if __MINGW_GNUC_PREREQ (4, 4)
-#define __MINGW_ATTRIB_NO_OPTIMIZE __attribute__((__optimize__ ("0")))
-#else
-#define __MINGW_ATTRIB_NO_OPTIMIZE
-#endif
-
 /**
  * ISO C++11 & ISO C99 requires _Pragma to be implemented.
  * GCC supports _Pragma since 3.0 (https://gcc.gnu.org/pipermail/gcc/2002-March/078934.html)
@@ -342,14 +314,6 @@ typedef int __int128 __attribute__ ((__mode__ (TI)));
 #define _W64
 #endif
 
-#ifndef _CRTIMP_NOIA64
-#ifdef __ia64__
-#define _CRTIMP_NOIA64
-#else
-#define _CRTIMP_NOIA64 _CRTIMP
-#endif
-#endif /* _CRTIMP_NOIA64 */
-
 #ifndef _CRTIMP2
 #define _CRTIMP2 _CRTIMP
 #endif
@@ -401,10 +365,6 @@ typedef int __int128 __attribute__ ((__mode__ (TI)));
 
 #ifndef _CRT_INSECURE_DEPRECATE_GLOBALS
 #define _CRT_INSECURE_DEPRECATE_GLOBALS(_Replacement)
-#endif
-
-#ifndef _CRT_MANAGED_HEAP_DEPRECATE
-#define _CRT_MANAGED_HEAP_DEPRECATE
 #endif
 
 #ifndef _CRT_OBSOLETE
@@ -568,7 +528,7 @@ typedef int __int128 __attribute__ ((__mode__ (TI)));
 
 
 /* Macros for __uuidof template-based emulation */
-#if defined(__cplusplus) && (USE___UUIDOF == 0)
+#if defined(__cplusplus) && (__MINGW_USE___UUIDOF == 0)
 
 #if __cpp_constexpr >= 200704l && __cpp_inline_variables >= 201606L
 #define __CRT_UUID_DECL(type,l,w1,w2,b1,b2,b3,b4,b5,b6,b7,b8)    \
@@ -610,12 +570,13 @@ _CRT_BEGIN_C_HEADER
 
 #ifdef __MINGW_INTRIN_INLINE
 
-#ifdef __has_builtin
-#define __MINGW_DEBUGBREAK_IMPL !__has_builtin(__debugbreak)
-#else
-#define __MINGW_DEBUGBREAK_IMPL 1
-#endif
-#if __MINGW_DEBUGBREAK_IMPL == 1
+/* For other headers to detect the presence and provider of these functions */
+/* 1 -> provided by mingw-w64, 0 -> provided by compiler. Both mean they're already provided. */
+#define __MINGW_DEBUGBREAK_IMPL (!__MINGW_HAS_BUILTIN(__debugbreak))
+#define __MINGW_FASTFAIL_IMPL (!__MINGW_HAS_BUILTIN(__fastfail))
+#define __MINGW_PREFETCH_IMPL (!__MINGW_HAS_BUILTIN(__prefetch))
+
+#if !__MINGW_HAS_BUILTIN(__debugbreak)
 void __cdecl __debugbreak(void);
 __MINGW_INTRIN_INLINE void __cdecl __debugbreak(void)
 {
@@ -629,14 +590,9 @@ __MINGW_INTRIN_INLINE void __cdecl __debugbreak(void)
   __asm__ __volatile__("unimplemented");
 #endif
 }
-#endif /* __MINGW_DEBUGBREAK_IMPL == 1 */
+#endif /* !__MINGW_HAS_BUILTIN(__debugbreak) */
 
-#ifdef __has_builtin
-#define __MINGW_FASTFAIL_IMPL !__has_builtin(__fastfail)
-#else
-#define __MINGW_FASTFAIL_IMPL 1
-#endif
-#if __MINGW_FASTFAIL_IMPL == 1
+#if !__MINGW_HAS_BUILTIN(__fastfail)
 void __cdecl __MINGW_ATTRIB_NORETURN __fastfail(unsigned int _Code);
 __MINGW_INTRIN_INLINE void __cdecl __MINGW_ATTRIB_NORETURN __fastfail(unsigned int _Code)
 {
@@ -653,15 +609,10 @@ __MINGW_INTRIN_INLINE void __cdecl __MINGW_ATTRIB_NORETURN __fastfail(unsigned i
 #endif
   __builtin_unreachable();
 }
-#endif /* __MINGW_FASTFAIL_IMPL == 1 */
+#endif /* !__MINGW_HAS_BUILTIN(__fastfail) */
 
-#ifdef __has_builtin
-#define __MINGW_PREFETCH_IMPL !__has_builtin(__prefetch)
-#else
-#define __MINGW_PREFETCH_IMPL 1
-#endif
-#if __MINGW_PREFETCH_IMPL == 1
-#if defined(__arm__) || defined(__aarch64__) || defined(__arm64ec__)
+
+#if !__MINGW_HAS_BUILTIN(__prefetch) && (defined(__arm__) || defined(__aarch64__) || defined(__arm64ec__))
 void __cdecl __prefetch(const void *_Addr);
 __MINGW_INTRIN_INLINE void __cdecl __prefetch(const void *_Addr)
 {
@@ -671,8 +622,7 @@ __MINGW_INTRIN_INLINE void __cdecl __prefetch(const void *_Addr)
   __asm__ __volatile__("prfm pldl1keep, [%0]"::"r"(_Addr));
 #endif
 }
-#endif /* defined(__arm__) || defined(__aarch64__) */
-#endif /* __MINGW_PREFETCH_IMPL == 1 */
+#endif /* !__MINGW_HAS_BUILTIN(__prefetch) && (defined(__arm__) || defined(__aarch64__) || defined(__arm64ec__)) */
 
 #endif /* defined(__MINGW_INTRIN_INLINE) */
 

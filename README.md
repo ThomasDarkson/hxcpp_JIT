@@ -1,8 +1,10 @@
-[![](https://thomasdarkson.com/assets/stickers/sticker.png)](https://thomasdarkson.com)
+[<p align="center"><img src="https://thomasdarkson.com/assets/stickers/sticker.png" style="width:30%; height:auto;"></p>](https://thomasdarkson.com)
 
-[<img src="https://thomasdarkson.com/hxcpp_JIT/hxcpp_JIT_logo.png" style="width:60%; height:auto;">](https://thomasdarkson.com)
+[<p align="center"><img src="https://thomasdarkson.com/hxcpp_JIT/hxcpp_JIT_logo1.png" style="width:30%; height:auto;"></p>](https://thomasdarkson.com)
 
-# hxcpp_JIT
+<p align="center"><img src="https://stats.thomasdarkson.com/?repo=ThomasDarkson/hxcpp_JIT"></p>
+
+<h1 align="center">hxcpp_JIT</h1>
 
 hxcpp_JIT lets you compile and run native C++ code at runtime from Haxe. It wraps Clang's interpreter (Clang-Repl) in a small C library and exposes it with a simple Haxe class.
 
@@ -47,7 +49,7 @@ Add this to `project.xml`.
 - MSVC and the Windows SDK on Windows, or the normal C++ build tools on Linux (For building the Haxe application only)
 - The runtime files for your platform (included with the corresponding hxcpp_JIT backend, see [below](#shipping-the-executable))
 
-To rebuild the native library, you also need [CMake](https://cmake.org/download/), [Ninja](https://github.com/ninja-build/ninja/releases) and LLVM/Clang source. The Linux bundle uses LLVM 23.1.5. The Windows MinGW build also needs an x64 UCRT [LLVM-MinGW toolchain](https://github.com/mstorsjo/llvm-mingw/releases).
+To rebuild the native library, you also need [CMake](https://cmake.org/download/), [Ninja](https://github.com/ninja-build/ninja/releases) and LLVM/Clang source. The Linux bundle uses LLVM 23.1.6. The Windows MinGW build also needs an x64 UCRT [LLVM-MinGW toolchain](https://github.com/mstorsjo/llvm-mingw/releases).
 
 MinGW users do not need build tools installed on their PC. Linux users need system glibc 2.28 or newer. Your Haxe application and its other native libraries must also support the systems you want to run on.
 
@@ -105,7 +107,7 @@ This builds the optional MSVC backend into `build/`. Add `-D hxcpp_jit_msvc` to 
 Run this command to build with a glibc 2.28 baseline using Docker or Podman.
 
 ```bash
-./scripts/build-linux.sh --llvm-version 23.1.5 --jobs 2
+./scripts/build-linux.sh --llvm-version 23.1.6 --jobs 2
 ```
 
 The Linux script downloads LLVM source and builds the bundle into `build-linux/`. Change `--llvm-version` when updating LLVM. Docker or Podman is needed for this build workflow.
@@ -415,10 +417,78 @@ int add(int a, int b);
 
 The declarations file is what later `call`, `bind`, `get` and `set` see, so put everything they need in it, types, macros and function declarations. Do not put statements or non-inline definitions in it, they belong in the source.
 
-Use a cache for a big, self-contained file, and call its functions afterwards. Each file needs its own `cacheDirectory`, never share one between two files.
+Use a cache for a big, self-contained file, and call its functions afterwards. Each file needs its own `cacheDirectory`, never share one between two files. For many files, see [evalCachedFiles](#evalcachedfiles).
+
+### evalCachedFiles
+`evalCachedFile` compiles one file, so a change to anything it includes recompiles all of it. For a project with many `.cpp` files, use `evalCachedFiles`. It caches every source separately, so an edit only recompiles the files that are affected by it.
+
+```haxe
+var cpp = new Cpp(["-std=c++20", "-O2", "-Icore"]);
+trace(cpp.evalCachedFiles(
+	["core/Board.cpp", "core/Plant.cpp", "core/Bridge.cpp"],
+	"core/Bridge.hpp",
+	"cache/game"
+));
+```
+
+| Argument | Description |
+|---|---|
+| `sources` | The `.cpp` files to compile and cache. Each one is its own translation unit. |
+| `declarations` | A header with what you want to use from Haxe, the same as for `evalCachedFile`. |
+| `cacheDirectory` | The folder for the whole project. It is created if it doesn't exist. Each source gets its own subfolder in it. |
+| `maxWorkers` | Optional. How many sources can be compiled at once. Defaults to `2`. |
+| `compileFirst` | Optional. A comma separated list of file names to compile first, e.g. `"Board.cpp,Bridge.cpp"`. |
+
+All sources are linked into the same session, so they can call each other's functions and the declarations are available to `call`, `bind`, `get` and `set` like usual. Give the whole project one `cacheDirectory`, and a different one to any other project.
+
+Because every source is compiled alone, macros and private definitions stay inside their own file. Share anything between files with headers, and put what Haxe needs in the declarations header. If you have an umbrella file that `#include`s other `.cpp` files, pass those files in `sources` instead and drop the umbrella file.
+
+#### What gets recompiled
+Every source is checked on its own, using the same [rules](#when-the-cache-is-thrown-away) as `evalCachedFile`.
+
+- Editing `Plant.cpp` recompiles `Plant.cpp` only.
+- Editing a header recompiles every source that includes it, directly or through another header.
+- Changing the compiler flags, the LLVM version or anything else listed [below](#when-the-cache-is-thrown-away) recompiles everything.
+- The declarations header is not cached, it is read again on every launch.
+
+#### Workers
+Only the sources that missed the cache are compiled, and they can be compiled in parallel. `maxWorkers` is the limit, and never more workers than misses are started, so a fully cached project starts none.
+
+```haxe
+cpp.evalCachedFiles(sources, "core/Bridge.hpp", "cache/game", 1); // One at a time
+cpp.evalCachedFiles(sources, "core/Bridge.hpp", "cache/game", 8); // Up to 8 at a time
+```
+
+Each worker is a full compiler, so more of them use more CPU and memory. Past the number of cores your machine has, extra workers don't make the first build any faster.
+
+#### compileFirst
+If one file takes much longer than the rest, start it before the others so the build doesn't end waiting for it.
+
+```haxe
+cpp.evalCachedFiles(sources, "core/Bridge.hpp", "cache/game", 4, "Board.cpp, Plant.cpp");
+```
+
+Use file names, not paths. Names that don't match a source, or a source that is already cached, are ignored. The files listed in `cacheStatus` as the slowest are good candidates.
+
+#### Result
+The first line of `cacheStatus` says how many sources were reused and how many were compiled. It is followed by timings, and by the slowest files when something was compiled.
+
+```
+Reused 2 cached IR; compiled 1 source file(s)
+JIT timings: cache lookup/IR load 4 ms, compile batch 812 ms (1 workers), ...
+JIT slowest compiled files:
+  Plant.cpp took 810 ms
+```
+
+If a cache can't be written, the sources are still compiled and used, and the message ends with `cache write skipped: ...`.
+
+#### Errors
+- A missing source or declarations file, an empty `sources` list, an empty `cacheDirectory`, a `maxWorkers` below `1`, and the same source twice all throw a `CppError` before anything is compiled.
+- If sources fail to compile, one `CppError` lists the errors of all of them, each starting with its file path. Nothing from that call is saved, so fix the errors and call it again.
+- Create a fresh `Cpp` session when retrying a group, the same as with [cache errors](#cache-errors).
 
 ### cacheStatus
-`evalCachedFile` returns a readable message about what the cache did, and `cacheStatus` holds the same message for the last call.
+`evalCachedFile` returns a readable message about what the cache did, and `cacheStatus` holds the same message for the last call. `evalCachedFiles` has its own message, see [Result](#result).
 
 ```haxe
 trace(cpp.cacheStatus); // Loaded compiled cache (IR + machine code)
@@ -488,7 +558,7 @@ safe.cpp.evalCachedFile("core.cpp", "api.hpp", "cache/core");
 `Cpp.LLVM_VERSION` is the LLVM version that the library was built with.
 
 ```haxe
-trace(Cpp.LLVM_VERSION); // 23.1.5
+trace(Cpp.LLVM_VERSION); // 23.1.6
 ```
 
 ## Errors

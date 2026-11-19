@@ -17,15 +17,6 @@ _CRT_BEGIN_C_HEADER
 #define _CRT_PACKING 8
 #endif
 
-#ifdef __ERRCODE_DEFINED_MS
-/* #define __ERRCODE_DEFINED_MS */
-typedef int errcode;
-#endif
-
-#ifndef _CRTNOALIAS
-#define _CRTNOALIAS
-#endif
-
 #ifndef _CRTRESTRICT
 #define _CRTRESTRICT
 #endif
@@ -155,14 +146,6 @@ typedef __time64_t time_t;
 
 #ifndef _CRT_SECURE_CPP_NOTHROW
 #define _CRT_SECURE_CPP_NOTHROW throw()
-#endif
-
-#ifndef __CRTDECL
-#if !defined(__cplusplus) && defined(__GNUC__)
-#define __CRTDECL __cdecl __attribute__ ((__unused__))
-#else
-#define __CRTDECL __cdecl
-#endif
 #endif
 
 #ifndef _CONST_RETURN
@@ -494,6 +477,8 @@ _CRTIMP __MINGW_ATTRIB_NORETURN void __cdecl _invoke_watson(const wchar_t *expre
 
 #endif
 
+#ifndef _UCRT
+
 struct threadlocaleinfostruct;
 struct threadmbcinfostruct;
 typedef struct threadlocaleinfostruct *pthreadlocinfo;
@@ -513,6 +498,23 @@ typedef struct tagLC_ID {
   unsigned short wCodePage;
 } LC_ID,*LPLC_ID;
 #endif /* _TAGLC_ID_DEFINED */
+
+#else /* _UCRT */
+
+typedef struct __crt_locale_data_public {
+  unsigned short const* _locale_pctype;
+  int _locale_mb_cur_max;
+  unsigned int _locale_lc_codepage;
+} __crt_locale_data_public;
+
+typedef struct __crt_locale_pointers {
+  struct __crt_locale_data*    locinfo;
+  struct __crt_multibyte_data* mbcinfo;
+} __crt_locale_pointers;
+
+typedef __crt_locale_pointers* _locale_t;
+
+#endif
 
 #ifndef __crt_typefix
 #define __crt_typefix(ctype)

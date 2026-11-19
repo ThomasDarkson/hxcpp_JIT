@@ -24,10 +24,13 @@
 #include "llvm/Config/llvm-config.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/TargetSelect.h"
+#include "llvm/Support/Threading.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/SHA256.h"
 #include "llvm/ADT/StringExtras.h"
 
+#include <algorithm>
+#include <charconv>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -37,6 +40,7 @@
 #include <mutex>
 #include <string>
 #include <stdexcept>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -119,6 +123,20 @@ static std::string cacheHash(llvm::StringRef data) {
 
 #include "object_cache.hpp"
 
+static unsigned configuredCodegenThreads() {
+  if (!llvm::llvm_is_multithreaded()) return 0;
+
+  const unsigned maximum = std::max(1u, std::thread::hardware_concurrency());
+  const char* value = std::getenv("HXCPP_JIT_CODEGEN_THREADS");
+  if (!value || !*value) return maximum;
+
+  unsigned count = 0;
+  const char* end = value + std::strlen(value);
+  const auto parsed = std::from_chars(value, end, count);
+  if (parsed.ec != std::errc{} || parsed.ptr != end) return 0;
+  return std::min(count, maximum);
+}
+
 struct JitEngine {
   std::shared_ptr<SessionLife> life = std::make_shared<SessionLife>();
 #ifdef HXCPP_JIT_MINGW
@@ -126,6 +144,7 @@ struct JitEngine {
 #endif
   std::vector<std::filesystem::path> loadedLibraries;
   CompilationObjectCache objectCache;
+  unsigned codegenThreads = 0;
   std::unique_ptr<clang::Interpreter> interp;
   std::string                         diagText;
   std::unique_ptr<llvm::raw_string_ostream> diagStream;
@@ -563,6 +582,7 @@ static std::filesystem::path cacheLibraryPath() {
 }
 
 #include "compilation_cache.hpp"
+#include "translation_unit_cache.hpp"
 
 extern "C" {
 
@@ -725,6 +745,8 @@ JitEngine* jit_create(const char* const* extra_args, int n_args) {
 #endif
     auto JB = std::make_unique<llvm::orc::LLJITBuilder>();
     JB->setJITTargetMachineBuilder(std::move(*JTMB));
+    e->codegenThreads = configuredCodegenThreads();
+    if (e->codegenThreads != 0) JB->setNumCompileThreads(e->codegenThreads);
 #ifdef HXCPP_JIT_MINGW
     hxcpp_JIT_configure_mingw_builder(*JB, e->libraries);
 #elif defined(_MSC_VER)
@@ -845,6 +867,20 @@ int jit_load_library(JitEngine* e, const char* path) {
 int jit_eval_cached(JitEngine* e, const char* code, const char* declarations, const char* directory) {
   if (!e || !code || !declarations || !directory) return 1;
   try { return evalCached(e, code, declarations, directory); }
+  catch (const std::exception& error) { e->lastError = error.what(); return 1; }
+  catch (...) { e->lastError = "Unknown compilation cache failure"; return 1; }
+}
+int jit_eval_cached_files(JitEngine* e, const char* sources, const char* declarations, const char* directory) {
+  return jit_eval_cached_files_with_workers(e, sources, declarations, directory, 2);
+}
+int jit_eval_cached_files_with_workers(JitEngine* e, const char* sources, const char* declarations,
+                                      const char* directory, int max_workers) {
+  return jit_eval_cached_files_with_priority(e, sources, declarations, directory, max_workers, nullptr);
+}
+int jit_eval_cached_files_with_priority(JitEngine* e, const char* sources, const char* declarations,
+                                       const char* directory, int max_workers, const char* compile_first) {
+  if (!e || !sources || !declarations || !directory) return 1;
+  try { return evalCachedFiles(e, sources, declarations, directory, max_workers, compile_first); }
   catch (const std::exception& error) { e->lastError = error.what(); return 1; }
   catch (...) { e->lastError = "Unknown compilation cache failure"; return 1; }
 }

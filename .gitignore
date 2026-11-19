@@ -1,4 +1,5 @@
 bin/
+vs/
 examples/
 llvm-build/
 llvm-project/

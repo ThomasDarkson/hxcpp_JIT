@@ -1,3 +1,12 @@
+# 0.1.3
+## Additions
+- Added `Cpp.evalCachedFiles`, which can compile and cache files simultaneously
+
+## Changes
+- Changed default C++ standart to C++23 (`-std=c++23`) from C++20 (`-std=c++20`)
+- Updated LLVM to 23.1.6
+- The copied binaries are now checked, identical files are not copied
+
 # 0.1.2
 ## Changes
 - Made it so scripts that don't use `<string>` no longer pay the cost of including it anyway, but scripts that do use `std::string` now have to include `<string>` first

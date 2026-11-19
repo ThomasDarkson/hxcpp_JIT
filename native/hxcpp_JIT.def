@@ -9,6 +9,9 @@ EXPORTS
   jit_eval
   jit_load_library
   jit_eval_cached
+  jit_eval_cached_files
+  jit_eval_cached_files_with_workers
+  jit_eval_cached_files_with_priority
   jit_cache_status
   jit_get
   jit_set

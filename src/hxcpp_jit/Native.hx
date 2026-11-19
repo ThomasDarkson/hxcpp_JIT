@@ -27,6 +27,10 @@ extern class Native {
 
 	@:native("jit_eval_cached") static function evalCached(e:Star<RawEngine>, code:ConstCharStar, declarations:ConstCharStar, directory:ConstCharStar):Int;
 
+	@:native("jit_eval_cached_files_with_workers") static function evalCachedFiles(e:Star<RawEngine>, sources:ConstCharStar, declarations:ConstCharStar, directory:ConstCharStar, maxWorkers:Int):Int;
+
+	@:native("jit_eval_cached_files_with_priority") static function evalCachedFilesWithPriority(e:Star<RawEngine>, sources:ConstCharStar, declarations:ConstCharStar, directory:ConstCharStar, maxWorkers:Int, compileFirst:ConstCharStar):Int;
+
 	@:native("jit_cache_status") static function cacheStatus(e:Star<RawEngine>):ConstCharStar;
 
 	@:native("jit_get") static function get(e:Star<RawEngine>, expr:ConstCharStar, out:Star<RawValue>):Int;

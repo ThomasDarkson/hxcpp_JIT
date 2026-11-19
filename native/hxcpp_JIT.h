@@ -21,6 +21,11 @@ const char* jit_backend(void);
 int   jit_eval(JitEngine* e, const char* code);
 int   jit_load_library(JitEngine* e, const char* path);
 int   jit_eval_cached(JitEngine* e, const char* code, const char* declarations, const char* directory);
+int   jit_eval_cached_files(JitEngine* e, const char* sources, const char* declarations, const char* directory);
+int   jit_eval_cached_files_with_workers(JitEngine* e, const char* sources, const char* declarations,
+                                       const char* directory, int max_workers);
+int   jit_eval_cached_files_with_priority(JitEngine* e, const char* sources, const char* declarations,
+                                         const char* directory, int max_workers, const char* compile_first);
 const char* jit_cache_status(JitEngine* e);
 int   jit_get(JitEngine* e, const char* expr, JitValue* out);
 int   jit_set(JitEngine* e, const char* lvalue, JitValue* value);

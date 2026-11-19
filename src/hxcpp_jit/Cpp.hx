@@ -87,15 +87,15 @@ class Cpp {
 	/**
 		The LLVM version the library `hxcpp_JIT` is actually built against.
 
-		`hxcpp_JIT 0.0.1` uses LLVM `23.1.4`.
+		`hxcpp_JIT 0.1.3` uses LLVM `23.1.6`.
 	**/
 	public static var LLVM_VERSION(default, never):String = Native.llvmVersion().toString();
 
 	/**
-		What the compilation cache did during the last `evalCachedFile` call, e.g. `Compiled and cached` or
+		What the compilation cache did during the last `evalCachedFile` or `evalCachedFiles` call, e.g. `Compiled and cached` or
 		`Loaded compiled cache (IR + machine code)`.
 
-		This is an empty string if `evalCachedFile` has not been called yet.
+		This is an empty string before the first cached evaluation.
 
 		@see `evalCachedFile`
 		@throws CppError If the session was disposed.
@@ -237,6 +237,91 @@ class Cpp {
 		var interfaceCode = "#include " + haxe.Json.stringify(FileSystem.fullPath(declarations).split("\\").join("/"));
 		check(Native.evalCached(engine, ConstCharStar.fromString(sourceCode), ConstCharStar.fromString(interfaceCode),
 			ConstCharStar.fromString(haxe.io.Path.normalize(haxe.io.Path.isAbsolute(cacheDirectory) ? cacheDirectory : haxe.io.Path.join([Sys.getCwd(), cacheDirectory])))));
+		return Native.cacheStatus(engine).toString();
+	}
+
+	/**
+		Compiles multiple files and caches them.
+
+		Unlike `evalCachedFile`, this won't recompile every file if any edits are made to the source or the files it includes. 
+
+		Caches are reused for the files unaffected by an edit. This comes with the cost of more memory and CPU usage.
+
+		```haxe
+		var cpp = new Cpp(["-std=c++23", "-O2"]);
+		trace(cpp.evalCachedFiles(["addon.cpp", "core.cpp"], "api.hpp", "cache/core", 1, "core.cpp,addon.cpp")); // core.cpp is compiled first
+		trace(cpp.call("add", [2, 3])); // 5
+		trace(cpp.call("subtract", [2, 3])); // -1
+
+		```
+
+		`api.hpp`:
+
+		```cpp
+		#pragma once
+		int add(int a, int b);
+		int subtract(int a, int b);
+		```
+
+		`core.cpp`:
+
+		```cpp
+		#include "api.hpp"
+		int add(int a, int b) { return a + b; }
+		```
+
+		`addon.cpp`:
+
+		```cpp
+		#include "api.hpp"
+		int subtract(int a, int b) { return a - b; }
+		```
+
+		# Workers
+		You can use workers in parallel to compile files simultaneously. Worker number is capped by cache misses and the CPU's thread count.
+
+		Using more workers speeds up compilation, especially when there are many files but slightly increases CPU and memory usage. 
+
+		However, more workers doesn't always mean faster compilation. Beyond a certain point, extra workers may sit idle and cause unnecessary CPU and memory overhead.
+
+		General rule for choosing a worker count: 
+		
+		If the CPU has 8 or more cores and the thread count is at least double the core count, use the core count.
+		
+		If the CPU has fewer than 8 cores, or the thread count is equal to the core count, use the thread count.
+
+		@param sources Path to the C++ files to cache.
+		@param declarations Path to a header with the declarations. It must not contain statements or non-inline definitions.
+		@param cacheDirectory The folder the cache is saved in. It is created if it doesn't exist.
+		@param maxWorkers How many workers should work in parallel to compile files. Check out the `Workers` section for more information.
+		@param compileFirst Optional list of files to compile first. The list must be comma separated, e.g., `a.cpp,b.cpp,c.cpp`.
+		@return The same message is in `cacheStatus`. A cache that can't be saved doesn't stop anything, the file is just compiled without it.
+		@see `cacheStatus`
+		@throws CppError If a file could not be found, `cacheDirectory` is empty, the code failed to compile or run, or the cache could not be run.
+		In the last case `cacheStatus` is `Cache load failed; removed cached code`. The bad cache is deleted, but start a new session before trying again.
+	**/
+	public function evalCachedFiles(sources:Array<String>, declarations:String, cacheDirectory:String, maxWorkers:Int = 2, ?compileFirst:String):String {
+		ensureAlive();
+		if (maxWorkers < 1) throw new CppError("Compile worker limit must be at least 1");
+		if (sources == null || sources.length == 0) throw new CppError("Choose at least one C++ source file");
+		if (!isExistingFile(declarations)) throw new CppError("Declarations not found: " + declarations);
+		if (cacheDirectory == null || StringTools.trim(cacheDirectory) == "") throw new CppError("Choose a cache directory");
+		var paths = [];
+		for (source in sources) {
+			if (!isExistingFile(source)) throw new CppError("File not found: " + source);
+			var path = FileSystem.fullPath(source).split("\\").join("/");
+			if (path.indexOf("\n") != -1) throw new CppError("Source paths cannot contain newlines");
+			paths.push(path);
+		}
+		var interfaceCode = "#include " + haxe.Json.stringify(FileSystem.fullPath(declarations).split("\\").join("/"));
+		var directory = haxe.io.Path.normalize(haxe.io.Path.isAbsolute(cacheDirectory) ? cacheDirectory : haxe.io.Path.join([Sys.getCwd(), cacheDirectory]));
+		var sourceList = paths.join("\n");
+		var status = compileFirst == null
+			? Native.evalCachedFiles(engine, ConstCharStar.fromString(sourceList), ConstCharStar.fromString(interfaceCode),
+				ConstCharStar.fromString(directory), maxWorkers)
+			: Native.evalCachedFilesWithPriority(engine, ConstCharStar.fromString(sourceList), ConstCharStar.fromString(interfaceCode),
+				ConstCharStar.fromString(directory), maxWorkers, ConstCharStar.fromString(compileFirst));
+		check(status);
 		return Native.cacheStatus(engine).toString();
 	}
 

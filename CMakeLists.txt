@@ -65,7 +65,7 @@ else()
 endif()
 
 llvm_map_components_to_libnames(_llvm_libs core support orcjit native bitreader bitwriter targetparser)
-target_link_libraries(hxcpp_JIT PRIVATE clangInterpreter clangFrontend ${_llvm_libs})
+target_link_libraries(hxcpp_JIT PRIVATE clangInterpreter clangFrontend clangCodeGen ${_llvm_libs})
 if(WIN32 AND NOT HXCPP_JIT_MINGW)
   set_target_properties(hxcpp_JIT PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
 endif()
